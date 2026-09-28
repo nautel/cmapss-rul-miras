@@ -1,0 +1,22 @@
+# du lieu NASA: tai bang server_remote/scripts/fetch_cmapss.sh
+data/
+# PDF bai bao (ban quyen nha xuat ban)
+references/
+papers/
+# repo cua nguoi khac, clone de tham khao
+external_code/
+# thong tin ha tang noi bo (host, duong dan, nhat ky van hanh)
+server_remote/
+STATE.md
+# ket qua tho (npz/json lon) — chi giu bao cao md va bang tong hop csv
+results/**/*.npz
+results/**/res_*.json
+results/**/hist_*.json
+results/**/traj_*.json
+results/**/unc_*.npz
+results/**/logs/
+results/rul_smoke/
+__pycache__/
+*.pyc
+.claude/
+results/**/*.log
