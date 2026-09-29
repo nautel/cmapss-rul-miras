@@ -34,7 +34,7 @@ WARNING on the chunk approximation for short sequences: the first chunk starts w
 so e_i = W0 k_i - v_i = -v_i for every token in the chunk — i.e. delta rule, l_p, Huber
 and robust all degenerate to a fixed function of -v, and `deltanet` COINCIDES with
 `linear_attn`. The paper uses chunk << T (T = 4096); here T = 40-60, so chunk 15-20
-affects 1/3-1/2 of the sequence. `run_miras_fix.sh` measures this effect by sweeping
+affects 1/3-1/2 of the sequence. `cluster/run_miras_fix.sh` measures this effect by sweeping
 chunk 1 / 5 / 20.
 
 The retention gate is lower-bounded at alpha >= 0.85: the chunk formula contains the ratio
@@ -371,7 +371,7 @@ class MirasRUL(nn.Module):
         axis.
 
         `bottleneck > 0`: squeeze the final state through a narrow bottleneck before
-        regression, to obtain `z` for the triplet loss (see train_miras2.py).
+        regression, to obtain `z` for the triplet loss (see train_miras_fix.py).
         """
         super().__init__()
         self.proj = nn.Linear(input_size, num_hidden)

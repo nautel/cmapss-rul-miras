@@ -11,7 +11,7 @@ NW=${NW:-5}
 EP=${EP:-200}
 PAT=${PAT:-20}
 ARCHS=${ARCHS:-bl:dcnn,bl:lstm,bl:bilstm,bl:gru,bl:tcn,bl:cnn_lstm,bl:mlp}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 echo "== baselines · GPU ${GPUS[*]} · $NW x2 workers · seeds=$SEEDS =="

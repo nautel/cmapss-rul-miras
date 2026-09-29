@@ -6,7 +6,7 @@ AR=${AR:-/home/lab/letuan/runs/rul_ar2}
 OUT=${OUT:-/home/lab/letuan/runs/rul_abl}
 NW=${NW:-10}
 SEEDS=${SEEDS:-0,1,2,3,4}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 $PY ablate.py --ar-dir "$AR" --list

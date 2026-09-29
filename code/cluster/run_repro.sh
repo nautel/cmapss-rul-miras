@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the full reproduction on cassio:
 #   CASSIO_GPUS=2 CASSIO_CPUS=12 CASSIO_MEM=48G \
-#     ./cassio.sh train --cwd '~/code/rul_sbi' 'bash run_repro.sh'
+#     ./cassio.sh train --cwd '~/code/rul_sbi' 'bash cluster/run_repro.sh'
 #
 # The model is tiny (49k params), so the bottleneck is CUDA LAUNCH LATENCY on a machine
 # loaded at ~80/80, not compute. Hence MANY parallel processes on the same GPU are
@@ -13,7 +13,7 @@ OUT=${OUT:-/home/lab/letuan/runs/rul_sbi}
 SEEDS=${SEEDS:-0,1,2}
 NW=${NW:-6}                       # number of parallel processes
 EP=${EPOCHS:+--epochs $EPOCHS}    # override epoch count (test runs only)
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT" "$OUT/logs"
 
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"

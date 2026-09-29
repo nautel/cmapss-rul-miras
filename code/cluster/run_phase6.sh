@@ -21,7 +21,7 @@ EXTRA=${EXTRA:-retnet,elastic,robust}
 MLP=${MLP:-titans_mlp,titans}
 MLP_OUT=${MLP_OUT:-/home/lab/letuan/runs/rul_mlp}
 MLP_EP=${MLP_EP:-60}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 echo "== GPU: ${GPUS[*]} =="

@@ -15,7 +15,7 @@ NW=${NW:-7}
 EP=${EP:-200}
 PAT=${PAT:-15}
 ARCHS=${ARCHS:-linear_attn,mamba2,deltanet,gated_deltanet,titans,moneta,yaad,memora}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 echo "== GPU: ${GPUS[*]} · archs=$ARCHS · $NW x2 workers =="

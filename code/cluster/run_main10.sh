@@ -6,7 +6,7 @@ ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
 OUT=${OUT:-/home/lab/letuan/runs/rul_main10}
 SEEDS=${SEEDS:-0,1,2,3,4,5,6,7,8,9}
 NW=${NW:-4}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 for ((i=0; i<NW; i++)); do

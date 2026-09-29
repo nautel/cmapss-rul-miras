@@ -7,7 +7,7 @@
 # before drawing conclusions about Table 4/5.
 #
 # Can run in batches: SHARD_LIST picks which shards run this time, NTOT = total shards.
-#   SHARD_LIST="0 1 2 3 4 5" NTOT=12 bash run_phase3.sh
+#   SHARD_LIST="0 1 2 3 4 5" NTOT=12 bash cluster/run_phase3.sh
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -15,7 +15,7 @@ OUT=${OUT:-/home/lab/letuan/runs/rul_sbi}
 SEEDS=${SEEDS:-0,1,2}
 NTOT=${NTOT:-12}
 SHARD_LIST=${SHARD_LIST:-"0 1 2 3 4 5 6 7 8 9 10 11"}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 echo "== GPU: ${GPUS[*]} · shard [$SHARD_LIST]/$NTOT · seeds=$SEEDS =="

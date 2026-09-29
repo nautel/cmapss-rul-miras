@@ -16,7 +16,7 @@ PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
 OUT=${OUT:-/home/lab/letuan/runs/rul_ar}
 NW=${NW:-12}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 echo "== autoresearch · GPU ${GPUS[*]} · $NW workers · out=$OUT =="

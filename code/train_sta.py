@@ -15,6 +15,7 @@ import torch
 import data as D
 from sta_hpinn import build_sta, ReLoBRaLo
 from train import rmse, score
+import traj as traj_mod
 
 # Sec. 3.1-3.2: window 40 for FD001, 60 for the other subsets; min-max; classic 14 sensors;
 # 20% of train as val; batch 512; lr 1e-3 for the first 50 epochs then 1e-4; mean of 10 runs
@@ -34,7 +35,8 @@ def evaluate(model, X, t, cap, bs=2048):
 
 
 def run(subset, seed=0, root="../data/CMAPSSData", outdir="./out", device=None,
-        physics=True, cond_norm=False, epochs=None, quiet=True, tag=None):
+        physics=True, cond_norm=False, epochs=None, quiet=True, tag=None,
+        split_seed=None, traj=False):
     cfg = dict(CFG)
     cfg["seq_len"] = SEQ[subset]
     if epochs:
@@ -44,8 +46,8 @@ def run(subset, seed=0, root="../data/CMAPSSData", outdir="./out", device=None,
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
     d = D.build(root, subset, seq_len=cfg["seq_len"], feature_mode=cfg["feature_mode"],
-                cond_norm=cond_norm, seed=seed, cap=cfg["cap"], eval_cap=D.RUL_CAP,
-                val_frac=cfg["val_frac"], norm=cfg["norm"])
+                cond_norm=cond_norm, seed=seed if split_seed is None else split_seed,
+                cap=cfg["cap"], eval_cap=D.RUL_CAP, val_frac=cfg["val_frac"], norm=cfg["norm"])
     cfg["input_size"] = len(d["features"])
     cap = cfg["cap"]
     T = lambda a: torch.as_tensor(a, device=dev)
@@ -116,6 +118,9 @@ def run(subset, seed=0, root="../data/CMAPSSData", outdir="./out", device=None,
     np.savez_compressed(os.path.join(outdir, f"pred_{tag}.npz"),
                         pred=pred, true=yte, unit=d["ute"])
     json.dump(res, open(os.path.join(outdir, f"res_{tag}.json"), "w"), indent=1)
+    if traj:
+        traj_mod.export(os.path.join(outdir, f"traj_{tag}.npz"), d,
+                        lambda X, t: evaluate(model, T(X), T(t.astype(np.float32)), cap))
     print(f"RESULT {tag}: RMSE={res['rmse']:.2f} Score={res['score']:.2f} "
           f"({res['epochs_run']} ep, {res['sec_per_epoch']:.2f}s/ep, {nparam} params)",
           flush=True)
@@ -133,6 +138,8 @@ if __name__ == "__main__":
     p.add_argument("--cond-norm", action="store_true")
     p.add_argument("--shard", default="0/1")
     p.add_argument("--verbose", action="store_true")
+    p.add_argument("--split-seed", type=int, default=None)
+    p.add_argument("--traj", action="store_true", help="export whole-life predictions")
     a = p.parse_args()
     jobs = [(s, int(sd)) for s in a.subsets.split(",") for sd in a.seeds.split(",")]
     i, n = (int(x) for x in a.shard.split("/"))
@@ -145,4 +152,4 @@ if __name__ == "__main__":
             print(f"SKIP {tag}", flush=True)
             continue
         run(s, sd, a.root, a.outdir, None, not a.no_physics, a.cond_norm,
-            a.epochs, quiet=not a.verbose)
+            a.epochs, quiet=not a.verbose, split_seed=a.split_seed, traj=a.traj)

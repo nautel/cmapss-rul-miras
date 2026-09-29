@@ -10,7 +10,7 @@ ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
 OUT=${OUT:-/home/lab/letuan/runs/rul_mfix}
 NA=${NA:-4}; NB=${NB:-8}; NC=${NC:-2}
 S10=0,1,2,3,4,5,6,7,8,9
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 gpu() { echo "${GPUS[$(($1 % ${#GPUS[@]}))]}"; }

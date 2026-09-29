@@ -25,7 +25,8 @@ import data as D
 from baselines import build_baseline
 from miras import build_miras
 from rve import batch_hard_triplet
-from train import rmse, score, config_for
+import traj as traj_mod
+from train import rmse, score, config_for, predict
 
 SEQ = {"FD001": 40, "FD002": 60, "FD003": 60, "FD004": 60}
 MIRAS = ["linear_attn", "mamba2", "deltanet", "gated_deltanet", "titans",
@@ -41,17 +42,11 @@ IDEAS.update({
 })
 
 
-def predict(model, X, cap, bs=4096):
-    model.eval()
-    out = []
-    with torch.no_grad():
-        for i in range(0, len(X), bs):
-            out.append(model(X[i:i + bs]).float().cpu().numpy())
-    return np.clip(np.concatenate(out) * cap, 0.0, cap)
-
-
 def run(subset, idea, seed, chunk, root, outdir, cond_norm, epochs=200, patience=25,
-        quiet=True):
+        quiet=True, split_seed=None, traj=False):
+    """`split_seed`: seed of the train/validation engine split (default: `seed`). Fixing
+    it keeps the same validation engines across model seeds, so their predictions can be
+    pooled per engine. `traj`: also export predictions along every engine life."""
     arch, ov, w_trip = IDEAS[idea]
     cfg = config_for(subset, epochs=epochs, patience=patience, seq_len=SEQ[subset],
                      num_hidden=32, ffn_hidden=64, encoder_layers=2, dropout=0.2,
@@ -64,8 +59,8 @@ def run(subset, idea, seed, chunk, root, outdir, cond_norm, epochs=200, patience
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     d = D.build(root, subset, seq_len=cfg["seq_len"], feature_mode="classic14",
-                cond_norm=cond_norm, seed=seed, cap=125.0, eval_cap=D.RUL_CAP,
-                val_frac=0.2, norm="minmax")
+                cond_norm=cond_norm, seed=seed if split_seed is None else split_seed,
+                cap=125.0, eval_cap=D.RUL_CAP, val_frac=0.2, norm="minmax")
     cfg["input_size"] = len(d["features"])
     cap = 125.0
     T = lambda a: torch.as_tensor(a, device=dev)
@@ -122,6 +117,9 @@ def run(subset, idea, seed, chunk, root, outdir, cond_norm, epochs=200, patience
     np.savez_compressed(os.path.join(outdir, f"pred_{tag}.npz"),
                         pred=pred, true=yte, unit=d["ute"])
     json.dump(res, open(os.path.join(outdir, f"res_{tag}.json"), "w"), indent=1)
+    if traj:
+        traj_mod.export(os.path.join(outdir, f"traj_{tag}.npz"), d,
+                        lambda X, t: predict(model, T(X), cap))
     print(f"RESULT {tag}: RMSE={res['rmse']:.2f} Score={res['score']:.1f} "
           f"({res['epochs_run']} ep, {res['sec_per_epoch']:.2f}s/ep, {nparam} params)",
           flush=True)
@@ -139,6 +137,8 @@ if __name__ == "__main__":
     p.add_argument("--epochs", type=int, default=200)
     p.add_argument("--shard", default="0/1")
     p.add_argument("--verbose", action="store_true")
+    p.add_argument("--split-seed", type=int, default=None)
+    p.add_argument("--traj", action="store_true", help="export whole-life predictions")
     a = p.parse_args()
     jobs = [(s, k, int(c), int(sd)) for s in a.subsets.split(",")
             for k in a.ideas.split(",") for c in a.chunks.split(",")
@@ -154,4 +154,5 @@ if __name__ == "__main__":
         if os.path.exists(os.path.join(a.outdir, f"res_{tag}.json")):
             print(f"SKIP {tag}", flush=True)
             continue
-        run(s, k, sd, c, a.root, a.outdir, cn, a.epochs, quiet=not a.verbose)
+        run(s, k, sd, c, a.root, a.outdir, cn, a.epochs, quiet=not a.verbose,
+            split_seed=a.split_seed, traj=a.traj)

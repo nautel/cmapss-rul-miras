@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 
 import data as D
+from metrics import rmse, score  # noqa: F401  (re-exported for other trainers)
 from model import build_model, ABLATIONS
 from miras import build_miras, VARIANTS as MIRAS_VARIANTS
 from baselines import build_baseline, BASELINES
@@ -34,16 +35,6 @@ def config_for(subset, **over):
     c.update(PER_SET[subset])
     c.update({k: v for k, v in over.items() if v is not None})
     return c
-
-
-def rmse(pred, true):
-    return float(np.sqrt(np.mean((pred - true) ** 2)))          # Eq. (15)
-
-
-def score(pred, true):
-    r = pred - true                                              # Eq. (16)
-    return float(np.sum(np.where(r > 0, np.exp(r / 10.0) - 1.0,
-                                 np.exp(-r / 13.0) - 1.0)))
 
 
 @torch.no_grad()

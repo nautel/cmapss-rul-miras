@@ -9,7 +9,7 @@ ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
 OUT=${OUT:-/home/lab/letuan/runs/rul_sbi}
 SEEDS=${SEEDS:-0,1,2}
 NW=${NW:-6}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 echo "== GPU: ${GPUS[*]} · $NW workers · seeds=$SEEDS =="

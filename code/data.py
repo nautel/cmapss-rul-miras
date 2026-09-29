@@ -181,6 +181,9 @@ def build(root, subset, seq_len=45, feature_mode="paper", cond_norm=False,
         # all windows of each test engine — used for Fig. 5 (RUL trajectory)
         raw_test=(Xte, ute, yte_row),
         cap=cap, eval_cap=eval_cap,
+        # validation engines are run-to-failure and unseen in training: engine id and the
+        # cycle at the end of each window, for qualitative full-life RUL plots
+        uval=uw[vm], cval=tw[vm], tmax=float(tw.max()),
     )
 
 

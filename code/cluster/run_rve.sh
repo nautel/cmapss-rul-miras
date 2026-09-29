@@ -10,7 +10,7 @@ NW=${NW:-6}
 V=${V:-full,notrip,norecon,plain}
 L=${L:-2,3,8,32}
 S=${S:-0,1,2,3,4,5,6,7,8,9}
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1   # run from code/
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 echo "== RVE · GPU ${GPUS[*]} · $NW x2 workers · variants=$V latents=$L =="

@@ -21,16 +21,9 @@ from collections import defaultdict
 import numpy as np
 from scipy import stats as sps
 
+from metrics import rmse, score
+
 SUBSETS = ["FD001", "FD002", "FD003", "FD004"]
-
-
-def rmse(p, t):
-    return float(np.sqrt(np.mean((p - t) ** 2)))
-
-
-def score(p, t):
-    r = p - t
-    return float(np.sum(np.where(r > 0, np.exp(r / 10.0) - 1.0, np.exp(-r / 13.0) - 1.0)))
 
 
 def load(dirs, pattern="pred_*.npz", merge_cn=True):
