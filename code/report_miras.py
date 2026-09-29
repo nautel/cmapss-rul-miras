@@ -1,6 +1,6 @@
-"""So sanh ho Miras (paper 2) voi SBi-Transformer va cac baseline (paper 1) tren C-MAPSS.
+"""Miras family (paper 2) vs. SBi-Transformer and the baselines (paper 1) on C-MAPSS.
 
-Gom ket qua tu ca hai thu muc chay: `--sbi` (giai doan 1-4) va `--miras` (giai doan 5-6).
+Merges results from both run dirs: `--sbi` (phases 1-4) and `--miras` (phases 5-6).
 """
 import argparse
 import glob
@@ -11,20 +11,20 @@ from collections import defaultdict
 import numpy as np
 from paper_values import SUBSETS, TABLE3
 
-# nhom thiet ke theo Miras: (attentional bias, retention gate)
+# design groups per Miras: (attentional bias, retention gate)
 MIRAS_INFO = {
-    "linear_attn":    ("dot product (Hebbian)", "khong quen (alpha=1)"),
-    "retnet":         ("dot product", "alpha hang so hoc duoc"),
-    "mamba2":         ("dot product", "alpha_t theo du lieu"),
-    "deltanet":       ("l2 (delta rule)", "khong quen (alpha=1)"),
-    "gated_deltanet": ("l2 (delta rule)", "alpha_t theo du lieu"),
-    "titans":         ("l2 + momentum", "alpha_t theo du lieu"),
-    "moneta":         ("l_p, p=3", "chuan hoa l_q, q=4"),
-    "yaad":           ("Huber (l2 / l1)", "alpha_t theo du lieu"),
+    "linear_attn":    ("dot product (Hebbian)", "no forgetting (alpha=1)"),
+    "retnet":         ("dot product", "learned constant alpha"),
+    "mamba2":         ("dot product", "data-dependent alpha_t"),
+    "deltanet":       ("l2 (delta rule)", "no forgetting (alpha=1)"),
+    "gated_deltanet": ("l2 (delta rule)", "data-dependent alpha_t"),
+    "titans":         ("l2 + momentum", "data-dependent alpha_t"),
+    "moneta":         ("l_p, p=3", "l_q normalization, q=4"),
+    "yaad":           ("Huber (l2 / l1)", "data-dependent alpha_t"),
     "memora":         ("l2", "KL / softmax"),
     "elastic":        ("l2", "elastic net, soft-threshold"),
-    "robust":         ("l2 + worst-case shift", "alpha_t theo du lieu"),
-    "titans_mlp":     ("l2 + momentum, bo nho MLP sau", "alpha_t theo du lieu"),
+    "robust":         ("l2 + worst-case shift", "data-dependent alpha_t"),
+    "titans_mlp":     ("l2 + momentum, deep MLP memory", "data-dependent alpha_t"),
 }
 SBI_LABEL = {
     "yes_yes_yes": "SBi-Transformer (paper 1)",
@@ -48,7 +48,7 @@ def load(dirs):
 
 
 def best_variant(agg, subset, name):
-    """Lay cau hinh tot nhat (theo RMSE trung binh) cua mot mo hinh tren mot subset."""
+    """Pick a model's best configuration (by mean RMSE) on one subset."""
     cands = [(k, v) for k, v in agg.items() if k[0] == subset and k[1] == name]
     if not cands:
         return None
@@ -94,41 +94,43 @@ def main():
                          n_params=v[0]["n_params"]))
     rows.sort(key=lambda r: r["avg"])
 
-    out = ["# Thu ho Miras tren C-MAPSS — va huong nao hop voi bai toan RUL", "",
+    out = ["# Trying the Miras family on C-MAPSS — and which direction suits RUL", "",
            "Paper 2: Behrouz, Razaviyayn, Zhong, Mirrokni, *It's All Connected* "
            "(arXiv:2504.13173, Google Research 2025).", "",
-           "Moi kien truc dung CUNG backbone (chieu tuyen tinh + position embedding hoc duoc "
-           "-> N khoi -> FC tren buoc cuoi) va CUNG sieu tham so Table 2 cua paper 1, chi khac "
-           "khoi tron chuoi. Moi o = trung binh 3 seed, lay cau hinh tien xu ly tot nhat "
-           "(z-score cho FD001/FD003, chuan hoa theo che do van hanh cho FD002/FD004).", "",
-           "## Bang xep hang (RMSE, thap hon = tot hon)", "",
-           "| # | Mo hinh | attentional bias | retention gate | " +
-           " | ".join(SUBSETS) + " | TB | tham so |",
+           "Every architecture uses the SAME backbone (linear projection + learned "
+           "position embedding -> N blocks -> FC on the last step) and the SAME Table 2 "
+           "hyperparameters of paper 1; only the sequence-mixing block differs. "
+           "Each cell = mean over 3 seeds, using the best preprocessing config "
+           "(z-score for FD001/FD003, operating-condition normalization for FD002/FD004).",
+           "",
+           "## Leaderboard (RMSE, lower = better)", "",
+           "| # | Model | attentional bias | retention gate | " +
+           " | ".join(SUBSETS) + " | mean | params |",
            "|---|---|---|---|" + "---|" * 6]
     for i, r in enumerate(rows, 1):
         base = r["name"].replace("+bilstm", "")
         bias, ret = MIRAS_INFO.get(base, ("—", "—"))
         lab = SBI_LABEL.get(r["name"], r["name"])
         if r["name"].endswith("+bilstm"):
-            lab += " + dau BiLSTM"
+            lab += " + BiLSTM head"
         out.append(f"| {i} | {lab} | {bias} | {ret} | " +
                    " | ".join(cell(x) for x in r["rmse"]) +
                    f" | **{r['avg']:.2f}** | {r['n_params']} |")
-    out.append(f"| — | SBi-Transformer *(so paper 1 cong bo)* | — | — | " +
+    out.append(f"| — | SBi-Transformer *(paper 1 published)* | — | — | " +
                " | ".join(f"{x:.2f}" for x in TABLE3["SBi-Transformer"]["rmse"]) +
                f" | {np.mean(TABLE3['SBi-Transformer']['rmse']):.2f} | — |")
     out.append("")
 
-    out += ["## Score (thap hon = tot hon)", "",
-            "| Mo hinh | " + " | ".join(SUBSETS) + " | TB |", "|---|" + "---|" * 5]
+    out += ["## Score (lower = better)", "",
+            "| Model | " + " | ".join(SUBSETS) + " | mean |", "|---|" + "---|" * 5]
     for r in sorted(rows, key=lambda r: r["avg_score"]):
         lab = SBI_LABEL.get(r["name"], r["name"])
         out.append(f"| {lab} | " + " | ".join(cell(x, "{:.1f}") for x in r["score"]) +
                    f" | **{r['avg_score']:.1f}** |")
     out.append("")
 
-    out += ["## Chi phi tinh toan (giay / epoch, trung binh 4 subset, V100 dung chung)", "",
-            "| Mo hinh | s/epoch | tham so |", "|---|---|---|"]
+    out += ["## Compute cost (seconds / epoch, mean over 4 subsets, shared V100)", "",
+            "| Model | s/epoch | params |", "|---|---|---|"]
     for r in sorted(rows, key=lambda r: r["sec"]):
         out.append(f"| {SBI_LABEL.get(r['name'], r['name'])} | {r['sec']:.2f} | {r['n_params']} |")
     out.append("")

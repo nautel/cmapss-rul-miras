@@ -1,8 +1,8 @@
-"""Huan luyen STA-HPINN theo dung muc 3.1-3.2 cua arXiv:2405.12377.
+"""Train STA-HPINN exactly per Sections 3.1-3.2 of arXiv:2405.12377.
 
-Khac voi train.py: loss co them thanh phan vat ly, va model can them input `t`
-(so chu ky), nen co vong huan luyen rieng. Ket qua ghi ra cung dinh dang
-`res_*.json` / `pred_*.npz` de dung chung cong cu thong ke.
+Unlike train.py: the loss has an extra physics term and the model needs an extra
+input `t` (cycle count), hence a separate training loop. Results are written in the
+same `res_*.json` / `pred_*.npz` format so the same statistics tools can be reused.
 """
 import argparse
 import json
@@ -16,8 +16,8 @@ import data as D
 from sta_hpinn import build_sta, ReLoBRaLo
 from train import rmse, score
 
-# muc 3.1-3.2: cua so 40 cho FD001, 60 cho cac bo con lai; min-max; 14 sensor kinh dien;
-# 20% train lam val; batch 512; lr 1e-3 cho 50 epoch dau roi 1e-4; trung binh 10 lan chay
+# Sec. 3.1-3.2: window 40 for FD001, 60 for the other subsets; min-max; classic 14 sensors;
+# 20% of train as val; batch 512; lr 1e-3 for the first 50 epochs then 1e-4; mean of 10 runs
 CFG = dict(feature_mode="classic14", norm="minmax", cap=125.0, val_frac=0.2,
            batch_size=512, lr1=1e-3, lr2=1e-4, lr_switch=50, epochs=250, patience=30,
            sta_d=32, sta_hidden=3, sta_neurons=10, sta_layers=3, n_heads=1, dropout=0.1)
@@ -69,7 +69,7 @@ def run(subset, seed=0, root="../data/CMAPSSData", outdir="./out", device=None,
         model.train()
         perm = torch.randperm(N, generator=g).to(dev)
         tot = 0.0
-        for i in range(0, N - 1, bs):                 # bo batch le kich thuoc 1 (BatchNorm)
+        for i in range(0, N - 1, bs):                 # skip size-1 last batch (BatchNorm)
             b = perm[i:i + bs]
             if len(b) < 2:
                 continue

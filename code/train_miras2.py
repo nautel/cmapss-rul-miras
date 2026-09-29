@@ -1,17 +1,17 @@
-"""Thi nghiem: dua bai hoc tu TSHAE + STA-HPINN vao khung Miras.
+"""Experiment: bring lessons from TSHAE + STA-HPINN into the Miras framework.
 
-Miras dinh nghia mo hinh bang 4 lua chon. Bon y tuong duoi day la 4 lua chon do
-day theo huong ma hai phuong phap manh nhat (TSHAE, STA-HPINN) da di, va nguoc voi
-huong paper Miras chon:
+Miras defines a model through 4 choices. The four ideas below are those 4 choices
+pushed in the direction taken by the two strongest methods (TSHAE, STA-HPINN), and
+opposite to the direction the Miras paper chose:
 
-| ma  | y tuong                       | lua chon cua Miras | nguon |
-|-----|-------------------------------|--------------------|-------|
-| `R` | bo nho HANG THAP (rank 2/4/8) | 1 — cau truc bo nho| TSHAE latent=2, STA-HPINN hidden=3 |
-| `B` | nut that o dau ra + triplet   | (dau doc bo nho)   | TSHAE triplet w=150 |
-| `S` | them nhanh tren chieu CAM BIEN| (chieu tac dong)   | STA-HPINN 2 nhanh song song |
-| `K` | attentional bias theo THU TU  | 2 — attentional bias| RUL don dieu |
+| id  | idea                         | Miras choice         | source |
+|-----|------------------------------|----------------------|--------|
+| `R` | LOW-RANK memory (rank 2/4/8) | 1 — memory structure | TSHAE latent=2, STA-HPINN hidden=3 |
+| `B` | output bottleneck + triplet  | (memory read head)   | TSHAE triplet w=150 |
+| `S` | extra branch on SENSOR axis  | (axis it acts on)    | STA-HPINN 2 parallel branches |
+| `K` | ORDER-based attentional bias | 2 — attentional bias | monotonic RUL |
 
-Moi bien the deu so voi `base` = Miras nguyen ban (titans) trong CUNG pipeline.
+Every variant is compared against `base` = vanilla Miras (titans) in the SAME pipeline.
 """
 import argparse
 import json
@@ -29,7 +29,7 @@ from train import rmse, score, config_for
 
 SEQ = {"FD001": 40, "FD002": 60, "FD003": 60, "FD004": 60}
 
-# ten bien the -> ghi de cau hinh
+# variant name -> config overrides
 IDEAS = {
     "base":        dict(),
     "R2":          dict(mem_rank=2),
@@ -42,8 +42,8 @@ IDEAS = {
     "R4_B3trip":   dict(mem_rank=4, bottleneck=3, w_trip=150.0),
     "R4_B3trip_S": dict(mem_rank=4, bottleneck=3, w_trip=150.0, sensor_branch=1),
 }
-# LUU Y (09-2026): da thay bang train_miras_fix.py sau khi sua loi trong miras.py.
-# `K`/`all` (rank_bias) da bo vi y tuong khong dung (V khong phai RUL).
+# NOTE (09-2026): superseded by train_miras_fix.py after the bug fixes in miras.py.
+# `K`/`all` (rank_bias) removed because the idea is invalid (V is not RUL).
 
 
 def predict(model, X, cap, bs=4096):

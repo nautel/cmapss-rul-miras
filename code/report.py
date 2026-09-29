@@ -1,4 +1,4 @@
-"""Gom ket qua -> bang markdown doi chieu voi Table 3/4/5/6 cua paper."""
+"""Aggregate results -> markdown tables compared against the paper's Table 3/4/5/6."""
 import argparse
 import glob
 import json
@@ -33,8 +33,8 @@ def cell(vals, paper=None, fmt="{:.2f}"):
 
 def table(agg, key, paper_map, cond_norm=False, title="", fmt="{:.2f}", fe=False, L=45):
     lines = [f"### {title}", "",
-             "| Cau hinh (Transformer / Sparse / BiLSTM) | " +
-             " | ".join(SUBSETS) + " | Trung binh |",
+             "| Configuration (Transformer / Sparse / BiLSTM) | " +
+             " | ".join(SUBSETS) + " | Mean |",
              "|---|" + "---|" * (len(SUBSETS) + 1)]
     for ab, lab in ABL_LABEL.items():
         row, means = [], []
@@ -50,7 +50,8 @@ def table(agg, key, paper_map, cond_norm=False, title="", fmt="{:.2f}", fe=False
         pavg = np.mean(paper_map[ab])
         lines.append(f"| {lab} | " + " | ".join(row) + f" | {avg} (paper {pavg:.2f}) |")
     lines.append("")
-    lines.append("Trong ngoac: lech tuong doi so voi tri paper. `±` = do lech chuan giua cac seed.")
+    lines.append("In parentheses: relative deviation from the paper value. "
+                 "`±` = std. dev. across seeds.")
     lines.append("")
     return "\n".join(lines)
 
@@ -62,14 +63,15 @@ def main():
     a = p.parse_args()
     agg = load(a.outdir)
     if not agg:
-        raise SystemExit(f"Khong co res_*.json trong {a.outdir}")
+        raise SystemExit(f"No res_*.json in {a.outdir}")
 
-    out = ["# Tai lap SBi-Transformer — Ren et al., Results in Engineering 29 (2026) 109187", ""]
+    out = ["# Reproducing SBi-Transformer — Ren et al., "
+           "Results in Engineering 29 (2026) 109187", ""]
     n_seeds = max(len(v) for v in agg.values())
-    out += [f"Chay tren cassio (Tesla V100). Moi o = trung binh {n_seeds} seed.", ""]
+    out += [f"Run on cassio (Tesla V100). Each cell = mean over {n_seeds} seeds.", ""]
 
     # --- Table 3 ---
-    out += ["## Table 3 — do chinh xac so voi cac phuong phap khac", "",
+    out += ["## Table 3 — accuracy vs. other methods", "",
             "| Algorithm | " + " | ".join(f"RMSE {s}" for s in SUBSETS) + " | " +
             " | ".join(f"Score {s}" for s in SUBSETS) + " |",
             "|---|" + "---|" * 8]
@@ -77,9 +79,9 @@ def main():
         out.append(f"| {name} (paper) | " +
                    " | ".join(f"{x:.2f}" for x in v["rmse"]) + " | " +
                    " | ".join(f"{x:.2f}" for x in v["score"]) + " |")
-    for ab, lab in [("yes_yes_yes", "**SBi-Transformer (tai lap)**"),
-                    ("yes_no_no", "Transformer only (tai lap)"),
-                    ("no_no_yes", "BiLSTM only (tai lap)")]:
+    for ab, lab in [("yes_yes_yes", "**SBi-Transformer (reproduced)**"),
+                    ("yes_no_no", "Transformer only (reproduced)"),
+                    ("no_no_yes", "BiLSTM only (reproduced)")]:
         r_, s_ = [], []
         for s in SUBSETS:
             rs = agg.get((s, ab, False, False, 45), [])
@@ -90,34 +92,37 @@ def main():
 
     # --- Table 4 / 5 ---
     out.append(table(agg, "rmse", ABL_RMSE, False,
-                     "Table 4 — ablation, RMSE (dung som nhu Table 2: patience=10)"))
+                     "Table 4 — ablation, RMSE (early stopping per Table 2: patience=10)"))
     out.append(table(agg, "score", ABL_SCORE, False,
-                     "Table 5 — ablation, Score (dung som)", "{:.1f}"))
+                     "Table 5 — ablation, Score (early stopping)", "{:.1f}"))
     if any((s, ab, False, True, 45) in agg for s in SUBSETS for ab in ABL_LABEL):
-        out += ["> Early stopping ban rat som (FD001/FD003: 22-24 epoch) va cat mo hinh LON "
-                "nang hon mo hinh nho, nen bang tren KHONG so sanh ablation cong bang. "
-                "Hai bang duoi chay du 200/600 epoch cua Table 2.", ""]
+        out += ["> Early stopping fires very early (FD001/FD003: 22-24 epochs) and cuts "
+                "the LARGE model harder than the small ones, so the table above is NOT a "
+                "fair ablation comparison. The two tables below run the full 200/600 epochs "
+                "of Table 2.", ""]
         out.append(table(agg, "rmse", ABL_RMSE, False,
-                         "Table 4 — ablation, RMSE (du epoch Table 2)", fe=True))
+                         "Table 4 — ablation, RMSE (full Table 2 epochs)", fe=True))
         out.append(table(agg, "score", ABL_SCORE, False,
-                         "Table 5 — ablation, Score (du epoch Table 2)", "{:.1f}", fe=True))
+                         "Table 5 — ablation, Score (full Table 2 epochs)", "{:.1f}", fe=True))
 
     # --- Table 6 ---
-    out += ["### Table 6 — thoi gian moi epoch (giay)", "",
-            "| Phuong phap | " + " | ".join(SUBSETS) + " |", "|---|" + "---|" * 4]
+    out += ["### Table 6 — time per epoch (seconds)", "",
+            "| Method | " + " | ".join(SUBSETS) + " |", "|---|" + "---|" * 4]
     for k, v in TABLE6.items():
         out.append(f"| {k} (paper) | " + " | ".join(f"{x:.2f}" for x in v) + " |")
     row = []
     for s in SUBSETS:
         rs = agg.get((s, "yes_yes_yes", False, False, 45), [])
         row.append(cell([x["sec_per_epoch"] for x in rs]) if rs else "—")
-    out.append("| **SBi-Transformer (tai lap, V100)** | " + " | ".join(row) + " |")
-    out += ["", "Paper do tren CPU i7-13800H; cot tai lap do tren 1 GPU V100 (may dung chung, "
-            "tai bien dong) nen chi so sanh duoc theo ty le giua cac subset.", ""]
+    out.append("| **SBi-Transformer (reproduced, V100)** | " + " | ".join(row) + " |")
+    out += ["", "Paper measured on an i7-13800H CPU; the reproduced row was measured on "
+            "1 V100 GPU (shared machine, fluctuating load), so only ratios across subsets "
+            "are comparable.", ""]
 
-    # --- do bat dinh + so epoch ---
-    out += ["### Do bat dinh (Bootstrap + t-distribution, Eq. 13-14)", "",
-            "| Subset | RMSE (mean MC-dropout) | Score | CI Eq.14: do phu / be rong | CI du bao: do phu / be rong | Epoch chay | Tham so |",
+    # --- uncertainty + epoch count ---
+    out += ["### Uncertainty (Bootstrap + t-distribution, Eq. 13-14)", "",
+            "| Subset | RMSE (mean MC-dropout) | Score | CI Eq.14: coverage / width | "
+            "Prediction CI: coverage / width | Epochs run | Params |",
             "|---|---|---|---|---|---|---|"]
     for s in SUBSETS:
         rs = agg.get((s, "yes_yes_yes", False, False, 45), [])
@@ -128,22 +133,23 @@ def main():
                    f"{g('ci_coverage','{:.3f}')} / {g('ci_width')} | "
                    f"{g('ci_pred_coverage','{:.3f}')} / {g('ci_pred_width')} | "
                    f"{g('epochs_run','{:.0f}')} | {rs[0]['n_params']} |")
-    out += ["", "Eq. (14) chia sigma cho `sqrt(n_bootstrap)` sau khi sigma da la do lech chuan cua "
-            "mot ensemble trung binh -> khoang hep den muc do phu ~0. Cot 'CI du bao' dung do tan "
-            "MC-dropout (`f*t*sigma_mc`), la thu tuong ung voi dai mau trong Fig. 5 cua paper.", ""]
+    out += ["", "Eq. (14) divides sigma by `sqrt(n_bootstrap)` although sigma is already "
+            "the std. dev. of an averaged ensemble -> the interval is so narrow that "
+            "coverage is ~0. The 'Prediction CI' column uses the MC-dropout spread "
+            "(`f*t*sigma_mc`), which matches the shaded band in the paper's Fig. 5.", ""]
 
-    # --- cac bien the: dung som / du epoch, Z-score toan cuc / theo che do van hanh ---
-    VARIANTS = [((False, False, 45), "Nhu paper (seq_len=45, patience=10, Z-score toan cuc)"),
-                ((False, True, 45),  "+ du epoch Table 2 (bo dung som)"),
-                ((True, False, 45),  "+ chuan hoa theo che do van hanh"),
-                ((True, True, 45),   "+ du epoch + chuan hoa theo che do"),
-                ((False, True, 30),  "seq_len=30 (theo Table 1), du epoch"),
-                ((True, True, 30),   "seq_len=30 + chuan hoa theo che do, du epoch")]
+    # --- variants: early stopping / full epochs, global / per-condition Z-score ---
+    VARIANTS = [((False, False, 45), "As in paper (seq_len=45, patience=10, global Z-score)"),
+                ((False, True, 45),  "+ full Table 2 epochs (no early stopping)"),
+                ((True, False, 45),  "+ operating-condition normalization"),
+                ((True, True, 45),   "+ full epochs + condition normalization"),
+                ((False, True, 30),  "seq_len=30 (per Table 1), full epochs"),
+                ((True, True, 30),   "seq_len=30 + condition norm., full epochs")]
     have = [(k, lab) for k, lab in VARIANTS
             if any((s, "yes_yes_yes") + k in agg for s in SUBSETS)]
     if len(have) > 1:
-        out += ["### Bien the — tach rieng anh huong cua dung som va cua chuan hoa", "",
-                "| Bien the | " + " | ".join(f"RMSE {s}" for s in SUBSETS) +
+        out += ["### Variants — separate effects of early stopping and of normalization", "",
+                "| Variant | " + " | ".join(f"RMSE {s}" for s in SUBSETS) +
                 " | " + " | ".join(f"Score {s}" for s in SUBSETS) + " |",
                 "|---|" + "---|" * 8]
         for (cn, fe, L), lab in have:
@@ -155,16 +161,16 @@ def main():
             out.append(f"| {lab} | " + " | ".join(r_) + " | " + " | ".join(s_) + " |")
         out.append("| **paper** | " + " | ".join(f"{x:.2f}" for x in ABL_RMSE["yes_yes_yes"]) +
                    " | " + " | ".join(f"{x:.2f}" for x in ABL_SCORE["yes_yes_yes"]) + " |")
-        out += ["", "FD001/FD003 chi co 1 che do van hanh nen chuan hoa theo che do trung voi "
-                "Z-score toan cuc — khong chay.", ""]
+        out += ["", "FD001/FD003 have only 1 operating condition, so condition "
+                "normalization equals global Z-score — not run.", ""]
         ep = []
         for s in SUBSETS:
             rs = agg.get((s, "yes_yes_yes", False, False, 45), [])
             if rs:
                 ep.append(f"{s}: {np.mean([x['epochs_run'] for x in rs]):.0f}")
         if ep:
-            out += [f"So epoch thuc su chay khi bat dung som: {', '.join(ep)} "
-                    f"(Table 2 ghi 200 cho FD001/FD003 va 600 cho FD002/FD004).", ""]
+            out += [f"Epochs actually run with early stopping on: {', '.join(ep)} "
+                    f"(Table 2 states 200 for FD001/FD003 and 600 for FD002/FD004).", ""]
 
     md = "\n".join(out)
     print(md)

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Giai doan 5 — thu ho mo hinh Miras (paper 2, arXiv 2504.13173) tren C-MAPSS.
+# Phase 5 — try the Miras model family (paper 2, arXiv 2504.13173) on C-MAPSS.
 #
-# Tien xu ly dung cai TOT NHAT da chung minh o cac giai doan truoc:
-#   FD001/FD003 -> Z-score toan cuc (chi 1 che do van hanh nen 2 cach la mot)
-#   FD002/FD004 -> chuan hoa theo 6 che do van hanh (--cond-norm)
-# epochs=200, patience=15 cho moi subset: cac giai doan truoc da do duoc rang chay
-# du 600 epoch KHONG cai thien gi so voi dung som (xem REPRODUCTION.md).
+# Preprocessing uses the BEST option shown in earlier phases:
+#   FD001/FD003 -> global Z-score (only 1 operating condition, so both are identical)
+#   FD002/FD004 -> normalization per the 6 operating conditions (--cond-norm)
+# epochs=200, patience=15 for every subset: earlier phases showed that running the
+# full 600 epochs gives NO improvement over early stopping (see REPRODUCTION.md).
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -18,7 +18,7 @@ ARCHS=${ARCHS:-linear_attn,mamba2,deltanet,gated_deltanet,titans,moneta,yaad,mem
 cd "$(dirname "$0")" || exit 1
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
-echo "== GPU: ${GPUS[*]} · archs=$ARCHS · $NW x2 worker =="
+echo "== GPU: ${GPUS[*]} · archs=$ARCHS · $NW x2 workers =="
 
 launch() {
     local name=$1; shift
@@ -33,5 +33,5 @@ launch() {
 launch simple --datasets FD001,FD003
 launch cond   --datasets FD002,FD004 --cond-norm
 wait
-echo "== xong giai doan 5 =="
+echo "== phase 5 done =="
 grep -h '^RESULT' "$OUT"/logs/*.log | sort

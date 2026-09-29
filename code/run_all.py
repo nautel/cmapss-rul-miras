@@ -1,4 +1,4 @@
-"""Chay toan bo luoi thi nghiem tai lap: 4 subset x 5 cau hinh ablation x n seed."""
+"""Run the full reproduction grid: 4 subsets x 5 ablation configs x n seeds."""
 import argparse
 import json
 import os
@@ -26,9 +26,9 @@ def main():
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--full-epochs", action="store_true")
     p.add_argument("--seq-len", type=int, default=None)
-    p.add_argument("--archs", default=None, help="danh sach kien truc Miras, thay cho --ablations")
+    p.add_argument("--archs", default=None, help="Miras archs, replaces --ablations")
     p.add_argument("--patience", type=int, default=None)
-    p.add_argument("--shard", default="0/1", help="i/n — chia luoi cho n tien trinh song song")
+    p.add_argument("--shard", default="0/1", help="i/n — split grid over n parallel processes")
     a = p.parse_args()
 
     ds = a.datasets.split(",")
@@ -36,7 +36,7 @@ def main():
     is_miras = bool(a.archs)
     seeds = [int(s) for s in a.seeds.split(",")]
     si, sn = (int(x) for x in a.shard.split("/"))
-    # sap giam dan theo chi phi uoc luong -> shard nao cung nhan viec nang tu dau
+    # sort by estimated cost, descending -> every shard gets heavy jobs first
     COST = {"no_no_yes": 0.2, "yes_no_yes": 0.6, "yes_no_no": 0.65,
             "yes_yes_no": 0.8, "yes_yes_yes": 1.0, "titans_mlp": 6.0}
     SIZE = {"FD001": 1.0, "FD003": 1.25, "FD002": 7.7, "FD004": 9.2}
@@ -55,7 +55,7 @@ def main():
                + (f"_L{a.seq_len}" if a.seq_len and a.seq_len != 45 else ""))
         path = os.path.join(a.outdir, f"res_{tag}.json")
         if os.path.exists(path):
-            print(f"[{i}/{total}] SKIP {tag} (da co)", flush=True)
+            print(f"[{i}/{total}] SKIP {tag} (exists)", flush=True)
             done.append(json.load(open(path)))
             continue
         print(f"[{i}/{total}] === {tag}  (+{time.time()-t0:.0f}s) ===", flush=True)
@@ -71,7 +71,7 @@ def main():
     if sn == 1:
         with open(os.path.join(a.outdir, "all_results.json"), "w") as f:
             json.dump(done, f, indent=1)
-    print(f"\nXONG shard {si}/{sn}: {len(done)}/{total} trong {time.time()-t0:.0f}s. Loi: {failed}",
+    print(f"\nDONE shard {si}/{sn}: {len(done)}/{total} in {time.time()-t0:.0f}s. Errors: {failed}",
           flush=True)
 
 

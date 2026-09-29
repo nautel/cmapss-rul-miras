@@ -1,8 +1,9 @@
-"""#8 — ablation co lap cho cau hinh cuoi cua autoresearch.
+"""#8 — isolated ablation of the final autoresearch config.
 
-Doc cau hinh tot nhat (theo VAL) tu thu muc autoresearch, roi sinh cac bien the
-"doi MOT yeu to ve gia tri cua paper" (one-factor-at-a-time). Nho vay biet duoc
-tung khac biet so voi paper dong gop bao nhieu, thay vi chi biet ca goi tot hon.
+Reads the best config (by VAL) from the autoresearch directory, then generates variants
+that "revert ONE factor to the paper's value" (one-factor-at-a-time). This shows how
+much each difference from the paper contributes, instead of only knowing that the
+whole package is better.
 """
 import argparse
 import glob
@@ -12,7 +13,7 @@ import traceback
 
 import train as T
 
-# gia tri tuong ung cua paper 1 (Table 2) cho tung yeu to
+# corresponding value from paper 1 (Table 2) for each factor
 PAPER = {
     "arch": "sbi:yes_yes_yes", "seq_len": 45, "rul_cap": 125,
     "feature_mode": "paper", "cond_norm": False, "num_hidden": 16,
@@ -23,22 +24,22 @@ SUBSETS = ["FD001", "FD002", "FD003", "FD004"]
 
 
 def best_cfg(d):
-    """Cau hinh co val tot nhat o tang cuoi co du lieu."""
+    """Config with the best val in the last stage that has data."""
     for stage in (3, 2, 1):
         rs = []
         for f in sorted(glob.glob(os.path.join(d, f"stage{stage}_results.jsonl*"))):
             rs += [json.loads(l) for l in open(f)]
         if rs:
             return min(rs, key=lambda r: r["val"])["cfg"], stage
-    raise SystemExit(f"khong co ket qua trong {d}")
+    raise SystemExit(f"no results in {d}")
 
 
 def variants(cfg):
-    """[(ten, cfg)] — ban day du + moi bien the tra MOT yeu to ve gia tri paper."""
+    """[(name, cfg)] — full config + each variant reverting ONE factor to paper value."""
     out = [("full", dict(cfg))]
     for k, pv in PAPER.items():
         if k not in cfg or str(cfg[k]) == str(pv):
-            continue                      # yeu to nay von da giong paper
+            continue                      # this factor already matches the paper
         c = dict(cfg)
         c[k] = pv
         out.append((f"-{k}", c))
@@ -83,10 +84,10 @@ if __name__ == "__main__":
     cfg, stage = best_cfg(a.ar_dir)
     vs = variants(cfg)
     if a.list:
-        print(f"cau hinh goc (tang {stage}):")
+        print(f"base config (stage {stage}):")
         for k in PAPER:
             print(f"   {k:16s} = {cfg.get(k)}   (paper: {PAPER[k]})")
-        print(f"\n{len(vs)} bien the: " + ", ".join(n for n, _ in vs))
+        print(f"\n{len(vs)} variants: " + ", ".join(n for n, _ in vs))
         raise SystemExit
 
     os.makedirs(a.outdir, exist_ok=True)

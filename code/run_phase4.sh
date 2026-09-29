@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Giai doan 4 — kiem chung gia dinh #2 (README): seq_len.
-# Table 2 ghi seq_len = 45, nhung "Training samples" cua Table 1 khop CHINH XAC voi cua so 30
-# tren FD001 (20631 - 100x29 = 17731) va FD003 (24720 - 100x29 = 21820). Chay lai voi 30 de
-# xem con so nao moi la con so paper thuc su dung.
+# Phase 4 — test assumption #2 (README): seq_len.
+# Table 2 states seq_len = 45, but Table 1's "Training samples" match a window of 30 EXACTLY
+# on FD001 (20631 - 100x29 = 17731) and FD003 (24720 - 100x29 = 21820). Rerun with 30 to
+# see which value the paper actually used.
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -13,7 +13,7 @@ NW=${NW:-6}
 cd "$(dirname "$0")" || exit 1
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
-echo "== GPU: ${GPUS[*]} · seq_len=$L · $NW worker =="
+echo "== GPU: ${GPUS[*]} · seq_len=$L · $NW workers =="
 
 launch() {
     local name=$1; shift
@@ -34,4 +34,4 @@ A=$!
 launch L${L}cn --datasets FD002,FD004 --cond-norm &
 B=$!
 wait $A; wait $B
-echo "== xong giai doan 4 =="
+echo "== phase 4 done =="

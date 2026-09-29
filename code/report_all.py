@@ -1,4 +1,4 @@
-"""Bang tong hop MOI phuong phap da chay tren C-MAPSS, kem CI bootstrap tren engine."""
+"""Summary table of ALL methods run on C-MAPSS, with engine-level bootstrap CIs."""
 import argparse
 import glob
 import json
@@ -10,20 +10,20 @@ import numpy as np
 from paper_values import SUBSETS, TABLE3, SOTA_RMSE, SOTA_SCORE
 import stats as S
 
-# ten hien thi + nguon
+# display name + source
 LABEL = {
-    "yes_yes_yes": ("SBi-Transformer (paper 1, tai lap)", "paper 1"),
+    "yes_yes_yes": ("SBi-Transformer (paper 1, reproduced)", "paper 1"),
     "yes_yes_no": ("Transformer + sparse attn", "paper 1, ablation"),
     "yes_no_yes": ("Transformer + BiLSTM", "paper 1, ablation"),
     "yes_no_no": ("Transformer", "paper 1, ablation"),
     "no_no_yes": ("BiLSTM", "paper 1, ablation"),
     "bl_dcnn": ("DCNN", "Li 2018"),
     "bl_lstm": ("LSTM", "Zheng 2017"),
-    "bl_bilstm": ("BiLSTM (baseline)", "van lieu"),
-    "bl_gru": ("GRU", "van lieu"),
+    "bl_bilstm": ("BiLSTM (baseline)", "prior work"),
+    "bl_gru": ("GRU", "prior work"),
     "bl_tcn": ("TCN", "Bai 2018"),
-    "bl_cnn_lstm": ("CNN-LSTM", "van lieu"),
-    "bl_mlp": ("MLP (can duoi)", "—"),
+    "bl_cnn_lstm": ("CNN-LSTM", "prior work"),
+    "bl_mlp": ("MLP (lower bound)", "—"),
     "titans": ("Titans", "paper 2"),
     "titans+bilstm": ("Titans + BiLSTM", "paper 2 x paper 1"),
     "gated_deltanet": ("Gated DeltaNet", "paper 2"),
@@ -38,7 +38,7 @@ LABEL = {
     "elastic": ("Elastic-net retention", "paper 2"),
     "robust": ("Robust bias", "paper 2"),
     "mamba2+bilstm": ("Mamba2 + BiLSTM", "paper 2 x paper 1"),
-    "titans_mlp": ("Titans, bo nho MLP sau", "paper 2"),
+    "titans_mlp": ("Titans, deep MLP memory", "paper 2"),
 }
 
 
@@ -53,7 +53,7 @@ def main():
 
     dirs = [d for d in a.dirs if os.path.isdir(d)]
     data = S.load(dirs)
-    # gop: moi phuong phap lay bien the co nhieu seed nhat tren tung subset
+    # merge: for each method, take the variant with the most seeds on each subset
     best = defaultdict(dict)
     for (m, sub), v in data.items():
         base = m.split("_fe")[0].split("_L")[0]
@@ -61,7 +61,7 @@ def main():
         if cur is None or len(v) > len(cur):
             best[base][sub] = v
 
-    # cau hinh cuoi cua autoresearch — CHI lay cau hinh co val tot nhat, khong tron 3 cai
+    # final autoresearch config — take ONLY the config with the best val, do not mix all 3
     fin = []
     for f in sorted(glob.glob(os.path.join(a.ar, "final_results.jsonl*"))):
         fin += [json.loads(l) for l in open(f)]
@@ -86,11 +86,11 @@ def main():
         rows.append((st.mean(cells[s][0] for s in SUBSETS), m, cells))
     rows.sort()
 
-    out = ["# Tong hop moi phuong phap tren C-MAPSS", "",
-           "Cung pipeline: cung tien xu ly (z-score cho FD001/FD003, chuan hoa theo che do "
-           "van hanh cho FD002/FD004), cung nhan cat 125, cung tach val theo engine. "
-           "`[.., ..]` = CI 95% bootstrap tren engine.", "",
-           "| # | phuong phap | nguon | " + " | ".join(SUBSETS) + " | TB | seed |",
+    out = ["# All methods on C-MAPSS — summary", "",
+           "Same pipeline: same preprocessing (z-score for FD001/FD003, "
+           "operating-condition normalization for FD002/FD004), same label cap 125, "
+           "same engine-wise val split. `[.., ..]` = 95% engine-level bootstrap CI.", "",
+           "| # | method | source | " + " | ".join(SUBSETS) + " | mean | seed |",
            "|---|---|---|" + "---|" * 6]
     for i, (avg, m, c) in enumerate(rows, 1):
         lab, src = LABEL.get(m, (m, "—"))
@@ -98,25 +98,25 @@ def main():
                    " | ".join(f"{c[s][0]:.2f} [{c[s][1]:.1f}, {c[s][2]:.1f}]" for s in SUBSETS) +
                    f" | **{avg:.2f}** | {min(c[s][4] for s in SUBSETS)} |")
     out.append("")
-    out += ["### Doi chieu voi so CONG BO (khong chay lai duoc)", "",
-            "| nguon | " + " | ".join(SUBSETS) + " | TB |", "|---|" + "---|" * 5]
+    out += ["### Comparison with PUBLISHED numbers (not re-runnable)", "",
+            "| source | " + " | ".join(SUBSETS) + " | mean |", "|---|" + "---|" * 5]
     ref = dict(SOTA_RMSE)
-    ref["**SBi-Transformer (paper 1) — cong bo**"] = TABLE3["SBi-Transformer"]["rmse"]
-    ref["ICL4RUL (paper 1 trich)"] = TABLE3["ICL4RUL [41]"]["rmse"]
+    ref["**SBi-Transformer (paper 1) — published**"] = TABLE3["SBi-Transformer"]["rmse"]
+    ref["ICL4RUL (cited in paper 1)"] = TABLE3["ICL4RUL [41]"]["rmse"]
     for k, v in sorted(ref.items(), key=lambda kv: st.mean(kv[1])):
         out.append(f"| {k} | " + " | ".join(f"{x:.2f}" for x in v) + f" | {st.mean(v):.2f} |")
     out.append("")
 
-    out += ["### Score (tong, thap hon = tot hon)", "",
-            "| phuong phap | " + " | ".join(SUBSETS) + " | TB |", "|---|" + "---|" * 5]
+    out += ["### Score (sum, lower = better)", "",
+            "| method | " + " | ".join(SUBSETS) + " | mean |", "|---|" + "---|" * 5]
     for avg, m, c in sorted(rows, key=lambda r: st.mean(r[2][s][3] for s in SUBSETS))[:12]:
         lab, _ = LABEL.get(m, (m, ""))
         out.append(f"| {lab} | " + " | ".join(f"{c[s][3]:.1f}" for s in SUBSETS) +
                    f" | **{st.mean(c[s][3] for s in SUBSETS):.1f}** |")
-    out.append(f"| **paper 1 — cong bo** | " +
+    out.append(f"| **paper 1 — published** | " +
                " | ".join(f"{x:.2f}" for x in TABLE3['SBi-Transformer']['score']) +
                f" | {st.mean(TABLE3['SBi-Transformer']['score']):.1f} |")
-    out.append(f"| STA-HPINN (2024) — cong bo | " +
+    out.append(f"| STA-HPINN (2024) — published | " +
                " | ".join(f"{x:.2f}" for x in SOTA_SCORE['STA-HPINN (2024)']) +
                f" | {st.mean(SOTA_SCORE['STA-HPINN (2024)']):.1f} |")
     out.append("")

@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Chay not: nua sau cua giai doan 3, roi giai doan 4 khi giai doan 3 da xong han.
+# Run the rest: second half of phase 3, then phase 4 once phase 3 has fully finished.
 set -u
 OUT=${OUT:-/home/lab/letuan/runs/rul_sbi}
 cd "$(dirname "$0")" || exit 1
 
-echo "=== giai doan 3, shard 6-11 ==="
+echo "=== phase 3, shards 6-11 ==="
 SHARD_LIST="6 7 8 9 10 11" NTOT=12 OUT="$OUT" bash run_phase3.sh
 
-# shard 0-11 cua giai doan 3 = 48 file, cong 18 file cua giai doan 2 = 66.
-# Ten file cua giai doan 4 ket thuc bang "_L30.json" nen khong lot vao glob nay.
-echo "=== cho shard 0-5 (job khac) xong ==="
+# phase 3 shards 0-11 = 48 files, plus 18 files from phase 2 = 66.
+# Phase 4 file names end in "_L30.json", so they don't match this glob.
+echo "=== waiting for shards 0-5 (other job) to finish ==="
 for _ in $(seq 1 240); do
     n=$(ls "$OUT"/res_*_fe.json 2>/dev/null | wc -l)
     [ "$n" -ge 66 ] && break
     echo "  $n/66 ... $(date +%H:%M)"; sleep 60
 done
 
-echo "=== giai doan 4: seq_len=30 ==="
+echo "=== phase 4: seq_len=30 ==="
 OUT="$OUT" bash run_phase4.sh
-echo "=== TAT CA XONG ==="
+echo "=== ALL DONE ==="

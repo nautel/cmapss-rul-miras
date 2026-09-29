@@ -1,8 +1,8 @@
-"""Bao cao lan chay lai ho Miras sau khi sua loi (09-2026).
+"""Report for the Miras-family rerun after the bug fix (09-2026).
 
-Phan A: anh huong cua xap xi chunk (1 = truy hoi chinh xac).
-Phan B: Miras (da sua) so voi moc SOTA trong CUNG pipeline, CI bootstrap tren engine,
-        hieu ghep cap so voi STA-HPINN (bo physics) va DCNN, hieu chinh Holm.
+Part A: effect of the chunk approximation (1 = exact recurrence).
+Part B: Miras (fixed) vs. the SOTA reference in the SAME pipeline, engine-level bootstrap
+        CIs, paired differences vs. STA-HPINN (no physics) and DCNN, Holm correction.
 """
 import argparse
 import statistics as st
@@ -14,12 +14,12 @@ from paper_values import SOTA_RMSE
 
 SUBSETS = S.SUBSETS
 LABEL = {
-    "sta_nophys": "STA-HPINN, bo physics (SOTA tai tao)",
+    "sta_nophys": "STA-HPINN, no physics (SOTA re-implemented)",
     "mf_dcnn_c5": "DCNN (Li 2018)",
     "mf_titans+bilstm_c5": "Titans + BiLSTM",
-    "mf_titans_R4_c5": "Titans, bo nho hang 4",
-    "mf_titans_B3trip_c5": "Titans, nut that 3 + triplet",
-    "mf_titans_S_c5": "Titans + nhanh cam bien",
+    "mf_titans_R4_c5": "Titans, rank-4 memory",
+    "mf_titans_B3trip_c5": "Titans, bottleneck 3 + triplet",
+    "mf_titans_S_c5": "Titans + sensor branch",
 }
 
 
@@ -39,14 +39,14 @@ def main():
     a = p.parse_args()
     data = S.load([a.dir])
     methods = sorted({k[0] for k in data})
-    out = ["# Miras sau khi sua loi — so voi SOTA cung pipeline", "",
-           "Pipeline chung: 14 sensor kinh dien, cua so 40/60/60/60, min-max (FD001/FD003), "
-           "chuan hoa theo che do van hanh (FD002/FD004), nhan cat 125, val 20% engine. "
-           "`[..]` = CI 95% bootstrap tren engine.", ""]
+    out = ["# Miras after the bug fix — vs. SOTA in the same pipeline", "",
+           "Shared pipeline: 14 classic sensors, window 40/60/60/60, min-max "
+           "(FD001/FD003), operating-condition normalization (FD002/FD004), label cap 125, "
+           "val = 20% of engines. `[..]` = 95% engine-level bootstrap CI.", ""]
 
     # ---- A: chunk ----
-    out += ["## A. Anh huong cua xap xi chunk (FD001, FD004 · 5 seed)", "",
-            "| bien the | chunk 1 (chinh xac) | chunk 5 | chunk 20 |", "|---|---|---|---|"]
+    out += ["## A. Effect of the chunk approximation (FD001, FD004 · 5 seeds)", "",
+            "| variant | chunk 1 (exact) | chunk 5 | chunk 20 |", "|---|---|---|---|"]
     for v in ["linear_attn", "deltanet", "gated_deltanet", "titans"]:
         cells = []
         for c in (1, 5, 20):
@@ -59,10 +59,11 @@ def main():
                     vals.append(np.mean([S.rmse(*d[k]) for k in seeds]))
             cells.append(f"{np.mean(vals):.2f}" if len(vals) == 2 else "—")
         out.append(f"| `{v}` | " + " | ".join(cells) + " |")
-    out += ["", "Trung binh FD001 va FD004. Neu `deltanet` va `linear_attn` chi tach nhau khi "
-            "chunk nho thi xap xi chunk dang xoa khac biet giua cac attentional bias.", ""]
+    out += ["", "Mean of FD001 and FD004. If `deltanet` and `linear_attn` separate only at "
+            "small chunk sizes, the chunk approximation is erasing the differences between "
+            "attentional biases.", ""]
 
-    # ---- B: bang chinh ----
+    # ---- B: main table ----
     main_m = [m for m in methods if (m.endswith("_c5") or m == "sta_nophys")
               and all(data.get((m, s)) for s in SUBSETS)]
     rows = []
@@ -73,26 +74,26 @@ def main():
         n = min(len(data[(m, s)]) for s in SUBSETS)
         rows.append((st.mean(cells[s][0] for s in SUBSETS), m, cells, sc, n))
     rows.sort(key=lambda r: r[0])
-    out += ["## B. Bang xep hang (RMSE)", "",
-            "| # | mo hinh | " + " | ".join(SUBSETS) + " | TB | Score TB | seed |",
+    out += ["## B. Leaderboard (RMSE)", "",
+            "| # | model | " + " | ".join(SUBSETS) + " | mean | mean Score | seed |",
             "|---|---|" + "---|" * 7]
     for i, (avg, m, c, sc, n) in enumerate(rows, 1):
         out.append(f"| {i} | {lab(m)} | " +
                    " | ".join(f"{c[s][0]:.2f} [{c[s][1]:.1f}, {c[s][2]:.1f}]" for s in SUBSETS) +
                    f" | **{avg:.2f}** | {sc:.0f} | {n} |")
     v = SOTA_RMSE["STA-HPINN (2024)"]
-    out.append(f"| — | *STA-HPINN — so cong bo* | " + " | ".join(f"*{x:.2f}*" for x in v) +
+    out.append(f"| — | *STA-HPINN — published* | " + " | ".join(f"*{x:.2f}*" for x in v) +
                f" | *{np.mean(v):.2f}* | — | — |")
     out.append("")
 
-    # ---- C: kiem dinh ghep cap ----
+    # ---- C: paired tests ----
     for ref in ("sta_nophys", "mf_dcnn_c5"):
         if not all(data.get((ref, s)) for s in SUBSETS):
             continue
-        out += [f"## C. Hieu ghep cap so voi {lab(ref)}", "",
-                "RMSE(mo hinh) − RMSE(moc); **am = tot hon moc**. In dam = co y nghia sau "
-                "Holm (p < 0,05) trong tung bo.", "",
-                "| mo hinh | " + " | ".join(SUBSETS) + " |", "|---|" + "---|" * 4]
+        out += [f"## C. Paired difference vs. {lab(ref)}", "",
+                "RMSE(model) − RMSE(reference); **negative = better than reference**. "
+                "Bold = significant after Holm (p < 0.05) within each subset.", "",
+                "| model | " + " | ".join(SUBSETS) + " |", "|---|" + "---|" * 4]
         per = {m: {} for _, m, *_ in rows if m != ref}
         for s in SUBSETS:
             ms = [m for m in per]

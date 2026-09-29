@@ -1,43 +1,46 @@
-"""Ho mo hinh Miras cho du doan RUL.
+"""Miras model family for RUL prediction.
 
 Paper: Ali Behrouz, Meisam Razaviyayn, Peilin Zhong, Vahab Mirrokni,
 "It's All Connected: A Journey Through Test-Time Memorization, Attentional Bias,
 Retention, and Online Optimization", arXiv:2504.13173 (Google Research, 2025).
 
-Miras coi moi sequence model la mot BO NHO LIEN KET hoc anh xa key->value tai thoi
-diem suy dien, xac dinh boi 4 lua chon: (1) cau truc bo nho, (2) attentional bias
-(ham muc tieu cua bo nho), (3) retention gate (co che quen), (4) thuat toan hoc.
+Miras views every sequence model as an ASSOCIATIVE MEMORY that learns a key->value
+mapping at inference time, defined by 4 choices: (1) memory structure, (2) attentional
+bias (the memory's objective), (3) retention gate (forgetting mechanism), (4) learning
+algorithm.
 
-Moi bien the trong file nay = mot to hop cua 4 lua chon do, dung CUNG mot vong lap,
-nen so sanh giua chung co lap dung thu paper muon nghien cuu.
+Each variant in this file = one combination of those 4 choices, all using the SAME loop,
+so comparisons between them isolate exactly what the paper sets out to study.
 
-| bien the        | attentional bias        | retention gate                    | muc |
+| variant         | attentional bias        | retention gate                    | ref |
 |-----------------|-------------------------|-----------------------------------|-----|
 | linear_attn     | dot product (Hebbian)   | alpha = 1                         | Eq.8  |
-| mamba2          | dot product             | alpha_t phu thuoc du lieu         | Eq.8  |
+| mamba2          | dot product             | data-dependent alpha_t            | Eq.8  |
 | deltanet        | l2 (delta rule)         | alpha = 1                         | Eq.9  |
-| gated_deltanet  | l2                      | alpha_t phu thuoc du lieu         | Eq.9  |
+| gated_deltanet  | l2                      | data-dependent alpha_t            | Eq.9  |
 | titans          | l2                      | alpha_t + momentum                | §4    |
-| moneta          | l_p, p=3                | alpha_t + chuan hoa l_q, q=4      | Eq.24 |
-| yaad            | Huber (tron l2 / l1)    | alpha_t                           | Eq.26 |
+| moneta          | l_p, p=3                | alpha_t + l_q normalization, q=4  | Eq.24 |
+| yaad            | Huber (mixed l2 / l1)   | alpha_t                           | Eq.26 |
 | memora          | l2                      | KL / softmax (elastic mem)        | Eq.27 |
 | elastic         | l2                      | elastic net, soft-threshold       | Eq.22 |
 | robust          | l2 + Delta*||e|| (worst case) | alpha_t                     | §5.1 v3 |
 
-Huan luyen song song theo chunk dung nhu §5.4: gradient cua moi token trong chunk
-tinh voi trang thai bo nho o DAU chunk. Nho vay ca chunk gom thanh matmul; chi con
-T/b buoc tuan tu. `chunk = 1` la truy hoi CHINH XAC (khong xap xi).
+Chunk-parallel training exactly as in §5.4: the gradient of every token in a chunk is
+computed with the memory state at the START of the chunk. This lets a whole chunk collapse
+into matmuls; only T/b sequential steps remain. `chunk = 1` is the EXACT recurrence
+(no approximation).
 
-CANH BAO ve xap xi chunk tren chuoi ngan: chunk dau tien bat dau voi W = 0 nen
-e_i = W0 k_i - v_i = -v_i cho moi token trong chunk — tuc delta rule, l_p, Huber,
-robust deu suy bien ve mot ham co dinh cua -v, va `deltanet` TRUNG voi `linear_attn`.
-Paper dung chunk << T (T = 4096); o day T = 40-60 nen chunk 15-20 anh huong 1/3-1/2
-chuoi. `run_miras_fix.sh` do anh huong nay bang cach quet chunk 1 / 5 / 20.
+WARNING on the chunk approximation for short sequences: the first chunk starts with W = 0,
+so e_i = W0 k_i - v_i = -v_i for every token in the chunk — i.e. delta rule, l_p, Huber
+and robust all degenerate to a fixed function of -v, and `deltanet` COINCIDES with
+`linear_attn`. The paper uses chunk << T (T = 4096); here T = 40-60, so chunk 15-20
+affects 1/3-1/2 of the sequence. `run_miras_fix.sh` measures this effect by sweeping
+chunk 1 / 5 / 20.
 
-Retention gate bi chan duoi alpha >= 0.85: trong cong thuc chunk co ti so beta_t/beta_i
-= prod alpha_j, neu alpha nho thi ti so nay bung len (1/alpha)^b. Voi b = 15 va
-alpha >= 0.85 thi ti so <= 11, an toan trong float32. alpha = 0.85 van quen du nhanh
-(0.85^45 = 6e-4 sau ca chuoi).
+The retention gate is lower-bounded at alpha >= 0.85: the chunk formula contains the ratio
+beta_t/beta_i = prod alpha_j; if alpha is small this ratio blows up as (1/alpha)^b. With
+b = 15 and alpha >= 0.85 the ratio is <= 11, safe in float32. alpha = 0.85 still forgets
+fast enough (0.85^45 = 6e-4 over the whole sequence).
 """
 import math
 import torch
@@ -48,17 +51,17 @@ EPS = 1e-6
 
 
 def _sign(x, sharp=10.0):
-    """Sign(x) ~ tanh(alpha x) — xap xi tron, Remark 5 cua paper."""
+    """Sign(x) ~ tanh(alpha x) — smooth approximation, Remark 5 of the paper."""
     return torch.tanh(sharp * x)
 
 
 def _abs(x):
-    """|x| = sqrt(x^2 + eps) — xap xi tron, Remark 5."""
+    """|x| = sqrt(x^2 + eps) — smooth approximation, Remark 5."""
     return torch.sqrt(x * x + EPS)
 
 
 class CausalDWConv(nn.Module):
-    """Depthwise-separable conv1d nhan qua sau moi phep chieu q/k/v (§5.4, kernel 4)."""
+    """Causal depthwise-separable conv1d after each q/k/v projection (§5.4, kernel 4)."""
 
     def __init__(self, d, k=4):
         super().__init__()
@@ -71,29 +74,30 @@ class CausalDWConv(nn.Module):
 
 
 class MirasLayer(nn.Module):
-    """Mot lop Miras voi bo nho tuyen tinh W in R^{d x d}, M(W,k) = W k."""
+    """A Miras layer with linear memory W in R^{d x d}, M(W,k) = W k."""
 
     NEEDS_GATE = {"mamba2", "gated_deltanet", "titans", "moneta", "yaad",
                   "memora", "elastic", "robust"}
 
     def __init__(self, d_model, variant="gated_deltanet", chunk=15, dropout=0.0,
                  rank=0, causal=True):
-        """`rank > 0`: bo nho hang thap W in R^{d x rank} thay vi d x d.
+        """`rank > 0`: low-rank memory W in R^{d x rank} instead of d x d.
 
-        Day la lua chon so 1 cua Miras (cau truc bo nho) day theo huong NGUOC voi
-        paper: ho mo rong (MLP sau, he so 4), o day thu that. Ly do: TSHAE dung
-        latent 2 chieu va STA-HPINN dung 3 — hai nguon doc lap cung ep bieu dien
-        qua nut that rat hep, va do la thu duy nhat cac phuong phap manh co chung
-        ma paper 1, ho Miras va cau hinh autoresearch deu khong co.
+        This pushes Miras choice #1 (memory structure) in the OPPOSITE direction from
+        the paper: they widen it (deep MLP, factor 4), here we narrow it. Rationale:
+        TSHAE uses a 2-dim latent and STA-HPINN uses 3 — two independent sources both
+        force the representation through a very narrow bottleneck, and that is the only
+        thing the strong methods have in common that paper 1, the Miras family and the
+        autoresearch config all lack.
         """
         super().__init__()
         assert variant in ("linear_attn", "retnet", "mamba2", "deltanet",
                            "gated_deltanet", "titans", "moneta", "yaad",
                            "memora", "elastic", "robust")
         self.v, self.d, self.b = variant, d_model, chunk
-        # causal=False: truc khong co thu tu (vd cam bien) — bo conv nhan qua, mask day du,
-        # khong quen, khong momentum. Ban cu dung mask tam giac tren truc cam bien -> cam
-        # bien i chi thay cam bien < i theo chi so tuy y. Sua 09-2026.
+        # causal=False: unordered axis (e.g. sensors) — no causal conv, full mask, no
+        # forgetting, no momentum. The old version used a triangular mask on the sensor
+        # axis -> sensor i only saw sensors < i under an arbitrary ordering. Fixed 09-2026.
         self.causal = causal
         self.rank = rank if rank and rank < d_model else 0
         if self.rank:
@@ -104,11 +108,11 @@ class MirasLayer(nn.Module):
         self.wv = nn.Linear(d_model, d_model)
         self.wo = nn.Linear(d_model, d_model)
         self.cq, self.ck, self.cv = (CausalDWConv(d_model) for _ in range(3))
-        self.gate = nn.Linear(d_model, d_model)            # cong dau ra (§5.4)
+        self.gate = nn.Linear(d_model, d_model)            # output gate (§5.4)
         self.norm = nn.LayerNorm(d_model)
         self.drop = nn.Dropout(dropout)
 
-        # eta_t: buoc hoc cua bo nho, phu thuoc du lieu
+        # eta_t: data-dependent memory learning rate
         self.p_eta = nn.Linear(d_model, 1)
         # alpha_t: retention gate
         if variant == "retnet":
@@ -116,19 +120,19 @@ class MirasLayer(nn.Module):
         elif variant in self.NEEDS_GATE:
             self.p_alpha = nn.Linear(d_model, 1)
         if variant == "titans":
-            self.p_theta = nn.Linear(d_model, 1)           # he so momentum
+            self.p_theta = nn.Linear(d_model, 1)           # momentum coefficient
         if variant == "yaad":
-            self.p_delta = nn.Linear(d_model, 1)           # nguong Huber
+            self.p_delta = nn.Linear(d_model, 1)           # Huber threshold
         if variant == "robust":
             self.log_Delta = nn.Parameter(torch.tensor(-2.0))
         if variant == "elastic":
-            self.log_gamma = nn.Parameter(torch.tensor(-3.0))   # nguong hard-forget
+            self.log_gamma = nn.Parameter(torch.tensor(-3.0))   # hard-forget threshold
         if variant == "moneta":
             self.p, self.q = 3.0, 4.0
         if variant == "memora":
             self.c = nn.Parameter(torch.tensor(float(d_model)))  # ||W||_1 = c
 
-    # ---- attentional bias: tra ve g_i sao cho grad = g_i k_i^T ----
+    # ---- attentional bias: return g_i such that grad = g_i k_i^T ----
     def _grad_dir(self, W0, K, V, delta=None):
         if self.v in ("linear_attn", "retnet", "mamba2"):
             return -V                                      # dot product (Hebbian)
@@ -146,23 +150,23 @@ class MirasLayer(nn.Module):
     def forward(self, x):
         B, T, D = x.shape
         b = self.b
-        assert T % b == 0, f"T={T} phai chia het cho chunk={b}"
+        assert T % b == 0, f"T={T} must be divisible by chunk={b}"
         if self.causal:
             Q = F.normalize(self.cq(self.wq(x)), dim=-1)    # l2-norm q,k (§5.4)
             K = F.normalize(self.ck(self.wk(x)), dim=-1)
             V = self.cv(self.wv(x))
-        else:                               # truc khong co thu tu (cam bien): bo conv nhan qua
+        else:                               # unordered axis (sensors): no causal conv
             Q = F.normalize(self.wq(x), dim=-1)
             K = F.normalize(self.wk(x), dim=-1)
             V = self.wv(x)
-        if self.rank:                       # nut that: khoa/truy van song trong R^rank
+        if self.rank:                       # bottleneck: keys/queries live in R^rank
             Q = F.normalize(self.proj_q(Q), dim=-1)
             K = F.normalize(self.proj_k(K), dim=-1)
         Dk = K.shape[-1]
 
         eta = torch.sigmoid(self.p_eta(x))                  # (B,T,1) in (0,1)
         if self.v in ("linear_attn", "deltanet") or not self.causal:
-            # khong nhan qua: khong co "truoc/sau" nen khong co quen theo thoi gian
+            # non-causal: no "before/after", hence no forgetting over time
             alpha = torch.ones(B, T, 1, device=x.device, dtype=x.dtype)
         elif self.v == "retnet":
             alpha = self.log_alpha.exp().clamp(0.85, 1.0).expand(B, T, 1)
@@ -173,8 +177,8 @@ class MirasLayer(nn.Module):
 
         idx = torch.arange(b, device=x.device)
         if self.causal:
-            tri = (idx[:, None] >= idx[None, :]).to(x.dtype)  # mask nhan qua trong chunk
-        else:                                                 # moi token thay moi token
+            tri = (idx[:, None] >= idx[None, :]).to(x.dtype)  # causal mask within chunk
+        else:                                                 # every token sees every token
             tri = torch.ones(b, b, device=x.device, dtype=x.dtype)
         momentum = self.v == "titans" and self.causal
 
@@ -191,17 +195,18 @@ class MirasLayer(nn.Module):
             Kc, Vc, Qc = K[:, sl], V[:, sl], Q[:, sl]
             ec, ac = eta[:, sl], alpha[:, sl]
 
-            # beta_t = prod_{j<=t} alpha_j  (trong chunk), va ti so beta_t / beta_j
+            # beta_t = prod_{j<=t} alpha_j  (within chunk), and the ratio beta_t / beta_j
             logb = torch.cumsum(torch.log(ac.squeeze(-1) + EPS), dim=1)   # (B,b)
             beta = logb.exp()                                             # (B,b)
             R = (logb[:, :, None] - logb[:, None, :]).exp() * tri         # (B,b,b)
-            if momentum:                                                  # them momentum
+            if momentum:                                                  # add momentum
                 tc = theta[:, sl].squeeze(-1)
                 lt = torch.cumsum(torch.log(tc + EPS), dim=1)
                 Theta = lt.exp()                                          # prod_{j<=t} theta_j
                 Mm = (lt[:, :, None] - lt[:, None, :]).exp() * tri
                 C = R @ Mm
-                # he so cua momentum mang tu chunk truoc: cS_t = sum_{j<=t} R[t,j] Theta_j
+                # coefficient of the momentum carried over from the previous chunk:
+                # cS_t = sum_{j<=t} R[t,j] Theta_j
                 cS = (R @ Theta.unsqueeze(-1)).squeeze(-1)                # (B,b)
             else:
                 C = R
@@ -227,7 +232,8 @@ class MirasLayer(nn.Module):
                 Wn = Wn / nq.pow(self.q - 2.0)[:, None, None]
             elif self.v == "memora":                                      # Eq. (27)
                 # Wn - W*beta = -sum eta g k^T = -eta*grad  =>  z = a*log W - eta*grad.
-                # (Ban cu tru them lan nua -> +eta*grad -> di LEN gradient. Sua 09-2026.)
+                # (Old version subtracted it again -> +eta*grad -> gradient ASCENT.
+                # Fixed 09-2026.)
                 lw = torch.log(W.clamp_min(EPS))
                 z = ac[:, -1, :, None] * lw + (Wn - W * beta[:, -1, None, None])
                 Wn = self.c.abs() * torch.softmax(z.flatten(1), dim=1).view_as(Wn)
@@ -235,8 +241,9 @@ class MirasLayer(nn.Module):
                 g = self.log_gamma.exp()
                 Wn = _sign(Wn) * F.relu(_abs(Wn) - g)
             if momentum:
-                # momentum qua ranh gioi chunk: S_end = Theta_b S_0 - sum Mm[b,i] eta g k^T
-                # (Ban cu tinh S roi bo di -> momentum reset moi chunk. Sua 09-2026.)
+                # momentum across chunks: S_end = Theta_b S_0 - sum Mm[b,i] eta g k^T
+                # (Old version computed S then discarded it -> momentum reset every chunk.
+                # Fixed 09-2026.)
                 wS = Mm[:, -1, :, None] * Gw
                 S = S * Theta[:, -1, None, None] - torch.einsum("btv,btk->bvk", wS, Kc)
             W = Wn
@@ -247,9 +254,9 @@ class MirasLayer(nn.Module):
 
 
 class MemoryMLP(nn.Module):
-    """Bo nho SAU 2 tang M(k) = W1 gelu(W2 k) — dung cho titans_mlp.
+    """2-layer DEEP memory M(k) = W1 gelu(W2 k) — used by titans_mlp.
 
-    Gradient tinh bang tay (khong autograd long nhau) de chay duoc 45 buoc tuan tu.
+    Gradients are computed by hand (no nested autograd) so 45 sequential steps can run.
     """
 
     def __init__(self, d, hidden):
@@ -284,10 +291,11 @@ class MemoryMLP(nn.Module):
 
 
 class TitansMLPLayer(nn.Module):
-    """Titans-LMM dung nhu §4: bo nho MLP sau + l2 bias + momentum + weight decay.
+    """Titans-LMM exactly as in §4: deep MLP memory + l2 bias + momentum + weight decay.
 
-    Chay TUAN TU tung buoc (khong chunk) vi bo nho khong tuyen tinh -> khong gom
-    duoc thanh matmul. Dung de kiem chung xem bo nho SAU co giup gi cho chuoi 45 buoc.
+    Runs SEQUENTIALLY step by step (no chunking) because a nonlinear memory cannot be
+    collapsed into matmuls. Used to test whether a DEEP memory helps at all on 45-step
+    sequences.
     """
 
     def __init__(self, d_model, hidden_mult=2, dropout=0.0):
@@ -330,7 +338,7 @@ class TitansMLPLayer(nn.Module):
 
 
 class MirasBlock(nn.Module):
-    """Lop Miras + FFN, moi phan co residual + LayerNorm (giong khoi encoder cua paper 1)."""
+    """Miras layer + FFN, each with residual + LayerNorm (like paper 1's encoder block)."""
 
     def __init__(self, d_model, ffn_hidden, variant, dropout, chunk, rank=0, causal=True):
         super().__init__()
@@ -349,20 +357,21 @@ class MirasBlock(nn.Module):
 
 
 class MirasRUL(nn.Module):
-    """Backbone du doan RUL: giu y nguyen phan ngoai cua paper 1 (chieu tuyen tinh +
-    position embedding hoc duoc -> N lop -> FC tren buoc cuoi) va CHI thay khoi
-    attention bang lop Miras, de so sanh cong bang."""
+    """RUL prediction backbone: keeps paper 1's outer structure unchanged (linear
+    projection + learned position embedding -> N layers -> FC on the last step) and
+    ONLY replaces the attention block with a Miras layer, for a fair comparison."""
 
     def __init__(self, input_size=17, seq_len=45, num_hidden=16, ffn_hidden=32,
                  layers=3, dropout=0.2, variant="gated_deltanet", chunk=15,
                  bilstm_size=0, bilstm_layers=2, rank=0, sensor_branch=False,
                  bottleneck=0, reg_dims=64):
-        """`sensor_branch`: chay them mot nhanh Miras tren chieu CAM BIEN (moi cam
-        bien la mot token) — y muon tu STA-HPINN, noi hai nhanh attention song song
-        la thanh phan chinh. Miras nguyen ban chi tac dong len chieu thoi gian.
+        """`sensor_branch`: additionally run a Miras branch over the SENSOR axis (each
+        sensor is one token) — idea borrowed from STA-HPINN, where two parallel
+        attention branches are the core component. Vanilla Miras only acts on the time
+        axis.
 
-        `bottleneck > 0`: ep trang thai cuoi qua nut that hep truoc khi hoi quy,
-        de lay `z` cho triplet loss (xem train_miras2.py).
+        `bottleneck > 0`: squeeze the final state through a narrow bottleneck before
+        regression, to obtain `z` for the triplet loss (see train_miras2.py).
         """
         super().__init__()
         self.proj = nn.Linear(input_size, num_hidden)
@@ -374,7 +383,7 @@ class MirasRUL(nn.Module):
             for _ in range(layers)])
         self.sensor_branch = sensor_branch
         if sensor_branch:
-            # moi cam bien la mot token; chunk = so cam bien -> mot chunk duy nhat
+            # each sensor is one token; chunk = number of sensors -> a single chunk
             self.s_proj = nn.Linear(seq_len, num_hidden)
             self.s_pos = nn.Parameter(torch.zeros(1, input_size, num_hidden))
             nn.init.trunc_normal_(self.s_pos, std=0.02)
@@ -382,8 +391,8 @@ class MirasRUL(nn.Module):
                 MirasBlock(num_hidden, ffn_hidden, variant, dropout, input_size, rank,
                            causal=False)
                 for _ in range(layers)])
-        # bilstm_size > 0: gan them dau BiLSTM giong paper 1, de so sanh o cung
-        # dung luong tham so (backbone Miras thuan chi ~9k tham so, SBi ~49k).
+        # bilstm_size > 0: attach a BiLSTM head as in paper 1, to compare at the same
+        # parameter budget (the pure Miras backbone has only ~9k params, SBi ~49k).
         self.bilstm = (nn.LSTM(num_hidden, bilstm_size, num_layers=bilstm_layers,
                                batch_first=True, bidirectional=True,
                                dropout=dropout if bilstm_layers > 1 else 0.0)
@@ -423,7 +432,7 @@ VARIANTS = _BASE + [v + "+bilstm" for v in _BASE]
 
 
 def build_miras(cfg, variant):
-    """`variant` co hau to "+bilstm" thi gan them dau BiLSTM cua paper 1."""
+    """If `variant` has the "+bilstm" suffix, attach paper 1's BiLSTM head."""
     bl = variant.endswith("+bilstm")
     return MirasRUL(input_size=cfg["input_size"], seq_len=cfg["seq_len"],
                     num_hidden=cfg["num_hidden"], ffn_hidden=cfg["ffn_hidden"],

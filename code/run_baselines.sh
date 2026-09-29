@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# #6 — chay cac baseline kinh dien cua van lieu trong CUNG pipeline.
-# Cung tien xu ly (z-score cho FD001/FD003, cond-norm cho FD002/FD004), cung seq_len 45,
-# cung nhan cat 125, cung tap val, cung so seed. Chi khac kien truc.
+# #6 — run classic literature baselines in the SAME pipeline.
+# Same preprocessing (z-score for FD001/FD003, cond-norm for FD002/FD004), same seq_len 45,
+# same label cap 125, same val set, same number of seeds. Only the architecture differs.
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -14,7 +14,7 @@ ARCHS=${ARCHS:-bl:dcnn,bl:lstm,bl:bilstm,bl:gru,bl:tcn,bl:cnn_lstm,bl:mlp}
 cd "$(dirname "$0")" || exit 1
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
-echo "== baselines · GPU ${GPUS[*]} · $NW x2 worker · seeds=$SEEDS =="
+echo "== baselines · GPU ${GPUS[*]} · $NW x2 workers · seeds=$SEEDS =="
 for ((i=0; i<NW; i++)); do
     g=${GPUS[$((i % ${#GPUS[@]}))]}
     CUDA_VISIBLE_DEVICES=$g OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
@@ -27,5 +27,5 @@ for ((i=0; i<NW; i++)); do
         > "$OUT/logs/c$i.log" 2>&1 &
 done
 wait
-echo "== xong baselines =="
+echo "== baselines done =="
 grep -h '^RESULT' "$OUT"/logs/*.log | sort

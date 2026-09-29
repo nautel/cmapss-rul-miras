@@ -1,4 +1,4 @@
-"""Ve lai Fig. 5 (quy dao RUL + CI), Fig. 6 (raincloud), Fig. 7 (heatmap), Fig. 8 (thoi gian)."""
+"""Redraw Fig. 5 (RUL trajectory + CI), Fig. 6 (raincloud), Fig. 7 (heatmap), Fig. 8 (time)."""
 import argparse
 import glob
 import json
@@ -34,18 +34,18 @@ def fig5(outdir, seed=0):
         u = sorted(tj, key=lambda k: -len(tj[k]["true"]))[0]
         t = tj[u]
         x = np.arange(len(t["true"]))
-        ax.plot(x, t["true"], "k-", lw=1.8, label="RUL that")
-        ax.plot(x, t["mu"], "-", color="tab:red", lw=1.5, label="Du doan (MC-dropout mean)")
+        ax.plot(x, t["true"], "k-", lw=1.8, label="True RUL")
+        ax.plot(x, t["mu"], "-", color="tab:red", lw=1.5, label="Prediction (MC-dropout mean)")
         if "plo" in t:
             ax.fill_between(x, t["plo"], t["phi"], color="tab:red", alpha=0.20,
-                            label="CI du bao (t x sigma_MC x 0.5)")
+                            label="Prediction CI (t x sigma_MC x 0.5)")
         ax.fill_between(x, t["lo"], t["hi"], color="tab:blue", alpha=0.9,
-                        label="CI theo Eq. (14)")
-        ax.set_title(f"{s} — engine test #{u}")
-        ax.set_xlabel("Chu ky bay"); ax.set_ylabel("RUL")
+                        label="CI per Eq. (14)")
+        ax.set_title(f"{s} — test engine #{u}")
+        ax.set_xlabel("Flight cycle"); ax.set_ylabel("RUL")
         ax.grid(alpha=0.3)
         ax.legend(fontsize=8)
-    fig.suptitle("Fig. 5 (tai lap) — quy dao RUL du doan tren engine test")
+    fig.suptitle("Fig. 5 (reproduced) — predicted RUL trajectories on test engines")
     fig.tight_layout()
     fig.savefig(os.path.join(outdir, "fig5_rul_curves.png"), dpi=150)
     plt.close(fig)
@@ -88,9 +88,9 @@ def fig6(outdir, seed=0):
             ax.set_visible(False); continue
         _raincloud(ax, gs, ls, cs)
         ax.axhline(0, color="k", lw=0.8, ls="--")
-        ax.set_title(f"{s}"); ax.set_ylabel("Sai so du doan (pred − true)")
+        ax.set_title(f"{s}"); ax.set_ylabel("Prediction error (pred − true)")
         ax.grid(alpha=0.3, axis="y")
-    fig.suptitle("Fig. 6 (tai lap) — phan bo sai so du doan tren tap test")
+    fig.suptitle("Fig. 6 (reproduced) — distribution of prediction errors on the test set")
     fig.tight_layout()
     fig.savefig(os.path.join(outdir, "fig6_raincloud.png"), dpi=150)
     plt.close(fig)
@@ -109,7 +109,7 @@ def fig7(outdir):
                 if rs:
                     M[i, j] = np.mean([r[key] for r in rs])
         fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-        for ax, A, t in [(axes[0], P, "Paper"), (axes[1], M, "Tai lap")]:
+        for ax, A, t in [(axes[0], P, "Paper"), (axes[1], M, "Our reproduction")]:
             im = ax.imshow(A, cmap="viridis", aspect="auto")
             ax.set_xticks(range(len(SUBSETS))); ax.set_xticklabels(SUBSETS)
             ax.set_yticks(range(len(abls)))
@@ -121,7 +121,7 @@ def fig7(outdir):
                                 color="w", fontsize=8)
             ax.set_title(f"{t} — {name}")
             fig.colorbar(im, ax=ax, fraction=0.046)
-        fig.suptitle(f"Fig. 7 (tai lap) — heatmap ablation, {name}")
+        fig.suptitle(f"Fig. 7 (reproduced) — ablation heatmap, {name}")
         fig.tight_layout()
         fig.savefig(os.path.join(outdir, f"fig7_heatmap_{key}.png"), dpi=150)
         plt.close(fig)
@@ -135,13 +135,13 @@ def fig8(outdir):
     x = np.arange(len(SUBSETS)); w = 0.2
     for i, (k, v) in enumerate(TABLE6.items()):
         ax.bar(x + (i - 1.5) * w, v, w, label=f"{k} (paper)")
-    ax.bar(x + 1.5 * w, ours, w, label="SBi-Transformer (tai lap, V100)", color="tab:red")
+    ax.bar(x + 1.5 * w, ours, w, label="SBi-Transformer (reproduced, V100)", color="tab:red")
     for i, v in enumerate(ours):
         if not np.isnan(v):
             ax.text(x[i] + 1.5 * w, v, f"{v:.2f}", ha="center", va="bottom", fontsize=8)
     ax.set_xticks(x); ax.set_xticklabels(SUBSETS)
-    ax.set_ylabel("Giay / epoch"); ax.legend(fontsize=8); ax.grid(alpha=0.3, axis="y")
-    ax.set_title("Fig. 8 (tai lap) — thoi gian huan luyen moi epoch")
+    ax.set_ylabel("Seconds / epoch"); ax.legend(fontsize=8); ax.grid(alpha=0.3, axis="y")
+    ax.set_title("Fig. 8 (reproduced) — training time per epoch")
     fig.tight_layout()
     fig.savefig(os.path.join(outdir, "fig8_time.png"), dpi=150)
     plt.close(fig)
@@ -155,12 +155,12 @@ def fig_loss(outdir, seed=0):
             ax.set_visible(False); continue
         h = json.load(open(p))
         ep = [x["epoch"] for x in h]
-        ax.plot(ep, [x["train_loss"] for x in h], label="train MSE (chuan hoa)")
+        ax.plot(ep, [x["train_loss"] for x in h], label="train MSE (normalized)")
         ax2 = ax.twinx()
         ax2.plot(ep, [x["val_rmse"] for x in h], color="tab:orange", label="val RMSE")
         ax.set_title(s); ax.set_xlabel("epoch"); ax.grid(alpha=0.3)
         ax.legend(loc="upper right", fontsize=8); ax2.legend(loc="center right", fontsize=8)
-    fig.suptitle("Duong hoc (tuong duong Fig. 8 trai cua paper)")
+    fig.suptitle("Learning curves (equivalent to the paper's Fig. 8, left)")
     fig.tight_layout()
     fig.savefig(os.path.join(outdir, "fig_loss_curves.png"), dpi=150)
     plt.close(fig)
@@ -173,4 +173,4 @@ if __name__ == "__main__":
     a = p.parse_args()
     fig5(a.outdir, a.seed); fig6(a.outdir, a.seed); fig7(a.outdir)
     fig8(a.outdir); fig_loss(a.outdir, a.seed)
-    print("Da ve:", sorted(os.path.basename(f) for f in glob.glob(os.path.join(a.outdir, "fig*.png"))))
+    print("Figures saved:", sorted(os.path.basename(f) for f in glob.glob(os.path.join(a.outdir, "fig*.png"))))

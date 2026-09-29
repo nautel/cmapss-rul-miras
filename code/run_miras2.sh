@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Thi nghiem: bai hoc tu TSHAE/STA-HPINN co dung duoc cho khung Miras khong?
-# 12 bien the x 4 bo con x 5 seed = 240 run. Moi bien the so voi `base` = Miras nguyen ban.
+# Experiment: do lessons from TSHAE/STA-HPINN carry over to the Miras framework?
+# 12 variants x 4 subsets x 5 seeds = 240 runs. Each variant vs. `base` = vanilla Miras.
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -10,7 +10,7 @@ S=${S:-0,1,2,3,4}
 cd "$(dirname "$0")" || exit 1
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
-echo "== Miras-2 · GPU ${GPUS[*]} · $NW x2 worker · seeds=$S =="
+echo "== Miras-2 · GPU ${GPUS[*]} · $NW x2 workers · seeds=$S =="
 for ((i=0; i<NW; i++)); do
     g=${GPUS[$((i % ${#GPUS[@]}))]}
     CUDA_VISIBLE_DEVICES=$g OMP_NUM_THREADS=2 \
@@ -21,5 +21,5 @@ for ((i=0; i<NW; i++)); do
         --subsets FD002,FD004 --cond-norm --shard "$i/$NW" > "$OUT/logs/c$i.log" 2>&1 &
 done
 wait
-echo "== xong Miras-2 =="
+echo "== Miras-2 done =="
 grep -h '^RESULT' "$OUT"/logs/*.log | sort

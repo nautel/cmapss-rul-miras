@@ -1,17 +1,17 @@
-"""Vong lap nghien cuu tu dong (autoresearch) tim phuong phap RUL manh tren C-MAPSS.
+"""Automated research loop (autoresearch) searching for a strong RUL method on C-MAPSS.
 
-NGUYEN TAC BAT BUOC: moi quyet dinh chon loc chi dua tren tap VALIDATION.
-Tap test chi duoc mo DUNG MOT LAN, o buoc cuoi, cho vai cau hinh da chot. Chay hang
-tram cau hinh roi chon theo test la tu lua minh — sai so chon loc se lon hon chinh
-khoang cach ma ta dang do.
+MANDATORY RULE: every selection decision is based on the VALIDATION set only.
+The test set is opened EXACTLY ONCE, at the final step, for a few locked-in configs.
+Running hundreds of configs and then picking by test is self-deception — the selection
+error would exceed the very gap we are measuring.
 
-Ba giai doan (successive halving):
-  1. `propose --stage 1` : lay mau ngau nhien N cau hinh trong khong gian thiet ke
-  2. `select  --stage k` : giu top theo val, sinh giai doan k+1 bang dot bien cuc bo
-  3. `final`             : lay top-K, chay nhieu seed, danh gia TEST + thu ensemble
+Three stages (successive halving):
+  1. `propose --stage 1` : randomly sample N configs from the design space
+  2. `select  --stage k` : keep the top by val, build stage k+1 via local mutation
+  3. `final`             : take top-K, run several seeds, evaluate TEST + try ensemble
 
-Khong gian thiet ke duoc gieo bang nhung gi da do duoc o giai doan 1-6:
-tien xu ly quan trong hon kien truc, nen no chiem phan lon cac bac tu do.
+The design space is seeded with what was measured in phases 1-6:
+preprocessing matters more than architecture, so it gets most of the degrees of freedom.
 """
 import argparse
 import copy
@@ -29,9 +29,9 @@ from miras import VARIANTS as MIRAS_VARIANTS
 
 SUBSETS = ["FD001", "FD002", "FD003", "FD004"]
 
-# --- khong gian thiet ke -----------------------------------------------------
+# --- design space ------------------------------------------------------------
 SPACE = {
-    # tien xu ly — bac tu do quan trong nhat theo do luong o giai doan 1-4
+    # preprocessing — most important degree of freedom, as measured in phases 1-4
     "cond_norm":     [True, False],
     "seq_len":       [30, 45, 60],
     "rul_cap":       [110, 125, 140],
@@ -41,19 +41,19 @@ SPACE = {
                       + ["titans", "gated_deltanet", "yaad", "moneta", "linear_attn",
                          "deltanet", "mamba2", "memora"]
                       + ["titans+bilstm", "gated_deltanet+bilstm", "yaad+bilstm"]),
-    # dung luong
+    # capacity
     "num_hidden":    [16, 32, 64],
     "ffn_hidden":    [32, 64, 128],
     "encoder_layers": [1, 2, 3, 4],
     "bilstm_size":   [32, 64],
     "n_heads":       [2, 4],
-    # huan luyen
+    # training
     "lr":            [1e-4, 3e-4, 5e-4, 1e-3],
     "dropout":       [0.1, 0.2, 0.3],
     "weight_decay":  [1e-5, 1e-4],
     "batch_size":    [128, 256],
 }
-# rang buoc: seq_len phai chia het cho chunk 15 cua lop Miras
+# constraint: seq_len must be divisible by the Miras layer chunk of 15
 VALID_SEQ = {"miras": [30, 45, 60], "sbi": [30, 45, 60]}
 
 
@@ -76,7 +76,7 @@ def mutate(base, rng, n_change=2):
 
 
 def cfg_id(c):
-    """Bam on dinh giua cac tien trinh — hash() cua Python co PYTHONHASHSEED ngau nhien."""
+    """Hash stable across processes — Python's hash() uses a random PYTHONHASHSEED."""
     keys = sorted(SPACE)
     raw = "|".join(f"{k}={c[k]}" for k in keys)
     return "h" + hashlib.sha1(raw.encode()).hexdigest()[:10]
@@ -88,13 +88,13 @@ def to_overrides(c, budget):
                            "dropout", "weight_decay", "batch_size")}
     o["epochs"] = budget
     o["patience"] = max(8, budget // 5)
-    o["skip_uncertainty"] = True     # MC-dropout 50 luot qua dat cho vong tim kiem
+    o["skip_uncertainty"] = True     # 50 MC-dropout passes too costly for the search loop
     return o
 
 
-# --- chay mot cau hinh -------------------------------------------------------
+# --- run one config ----------------------------------------------------------
 def run_one(c, budget, seeds, root, outdir, subsets):
-    """Tra ve val RMSE trung binh tren cac subset — KHONG cham vao test."""
+    """Return the mean val RMSE across subsets — does NOT touch test."""
     arch = c["arch"]
     ablation = "yes_yes_yes"
     if arch.startswith("sbi:"):
@@ -108,7 +108,7 @@ def run_one(c, budget, seeds, root, outdir, subsets):
                       c["cond_norm"], c["feature_mode"], quiet=True,
                       arch=arch, overrides=ov)
             vals.append(r["val_rmse"])
-            tests.append(r["rmse"])          # ghi lai nhung KHONG dung de chon
+            tests.append(r["rmse"])          # recorded but NOT used for selection
             secs.append(r["sec_per_epoch"])
     return dict(id=cfg_id(c), cfg=c, budget=budget, seeds=list(seeds),
                 subsets=list(subsets), val=float(np.mean(vals)),
@@ -127,7 +127,7 @@ def cmd_propose(a):
     rng = random.Random(a.seed)
     os.makedirs(a.outdir, exist_ok=True)
     cfgs = [sample(rng) for _ in range(a.n)]
-    # gieo them cac cau hinh da biet la manh (baseline de so sanh trong cung khung)
+    # also seed known-strong configs (baselines for comparison in the same framework)
     seeds_known = [
         dict(cond_norm=True, seq_len=45, rul_cap=125, feature_mode="paper",
              arch="sbi:yes_yes_yes", num_hidden=16, ffn_hidden=32, encoder_layers=3,
@@ -140,7 +140,7 @@ def cmd_propose(a):
     ]
     cfgs = seeds_known + cfgs
     json.dump(cfgs, open(stage_path(a.outdir, a.stage), "w"), indent=1)
-    print(f"stage {a.stage}: {len(cfgs)} cau hinh -> {stage_path(a.outdir, a.stage)}")
+    print(f"stage {a.stage}: {len(cfgs)} configs -> {stage_path(a.outdir, a.stage)}")
 
 
 def cmd_run(a):
@@ -183,7 +183,7 @@ def cmd_select(a):
     rs = load_results(a.outdir, a.stage)
     rs.sort(key=lambda r: r["val"])
     keep = rs[:max(1, int(len(rs) * a.frac))]
-    print(f"stage {a.stage}: {len(rs)} ket qua -> giu {len(keep)}")
+    print(f"stage {a.stage}: {len(rs)} results -> keep {len(keep)}")
     for r in keep[:12]:
         c = r["cfg"]
         print(f"  val={r['val']:.3f}  {c['arch']:22s} L{c['seq_len']} cap{c['rul_cap']} "
@@ -191,16 +191,17 @@ def cmd_select(a):
               f"do{c['dropout']} cn={c['cond_norm']} {c['feature_mode']}")
     rng = random.Random(a.seed + a.stage)
     nxt = [r["cfg"] for r in keep]
-    while len(nxt) < a.n:                      # dot bien quanh cac cau hinh song sot
+    while len(nxt) < a.n:                      # mutate around the surviving configs
         nxt.append(mutate(rng.choice(keep)["cfg"], rng))
     json.dump(nxt, open(stage_path(a.outdir, a.stage + 1), "w"), indent=1)
-    print(f"-> stage {a.stage+1}: {len(nxt)} cau hinh")
+    print(f"-> stage {a.stage+1}: {len(nxt)} configs")
 
 
 def cmd_final(a):
-    """Buoc DUY NHAT duoc cham vao test: top-K x 4 subset x nhieu seed.
+    """The ONLY step allowed to touch test: top-K x 4 subsets x several seeds.
 
-    Chia shard theo cap (cau hinh, subset) de chay song song — chay tuan tu mat ~15 gio.
+    Sharded by (config, subset) pair to run in parallel — running sequentially takes
+    ~15 hours.
     """
     rs = load_results(a.outdir, a.stage)
     rs.sort(key=lambda r: r["val"])

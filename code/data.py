@@ -1,27 +1,28 @@
-"""C-MAPSS loading + preprocessing theo muc 3.1 / 4.2 cua paper.
+"""C-MAPSS loading + preprocessing per Sections 3.1 / 4.2 of the paper.
 
 Paper: Ren et al., "A transformer-based method for aircraft engine RUL prediction
 integrating dual-layer attention with BiLSTM", Results in Engineering 29 (2026) 109187.
 
-Pipeline: Z-score -> PCA/loc tuong quan -> 14 sensor + 3 op setting = 17 feature
-(khop `input_size = 17` o Table 2), cua so truot seq_len=45, nhan RUL cat nguong 125.
+Pipeline: Z-score -> PCA/correlation filter -> 14 sensors + 3 op settings = 17 features
+(matches `input_size = 17` in Table 2), sliding window seq_len=45, RUL labels capped
+at 125.
 """
 import os
 import numpy as np
 
 COLS = ["unit", "cycle", "op1", "op2", "op3"] + [f"s{i}" for i in range(1, 22)]
-# 14 sensor "co lien he manh voi suy giam" (muc 4.2). Doc TRUC TIEP tu chu giai
-# Fig. 4(b) (engine #30, FD001) va Fig. 4(d) (engine #51, FD002) cua paper:
+# 14 sensors "strongly related to degradation" (Section 4.2). Read DIRECTLY from the
+# legends of Fig. 4(b) (engine #30, FD001) and Fig. 4(d) (engine #51, FD002) of the paper:
 #   (b) 12 13 7 21 2 20 9 | 11 4 14 17 15 3 6
 #   (d)  9 11 12 2 3 21 13 | 4 15 7 20 17 8 6
-# Hai tap khac nhau: FD001 co s14 khong co s8; FD002 co s8 khong co s14. Ca hai deu co s6.
+# The two sets differ: FD001 has s14 but not s8; FD002 has s8 but not s14. Both have s6.
 PAPER14 = {
     "FD001": [2, 3, 4, 6, 7, 9, 11, 12, 13, 14, 15, 17, 20, 21],
     "FD002": [2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 15, 17, 20, 21],
 }
-PAPER14["FD003"] = PAPER14["FD001"]   # paper gop FD001+FD003 (Table 2 cot "FD0013")
-PAPER14["FD004"] = PAPER14["FD002"]   # va FD002+FD004 (cot "FD0024")
-# Tap 14 sensor kinh dien trong tai lieu C-MAPSS — de doi chieu (--feature-mode classic14)
+PAPER14["FD003"] = PAPER14["FD001"]   # paper merges FD001+FD003 (Table 2 column "FD0013")
+PAPER14["FD004"] = PAPER14["FD002"]   # and FD002+FD004 (column "FD0024")
+# Classic 14-sensor set of the C-MAPSS literature, for reference (--feature-mode classic14)
 CLASSIC14 = [2, 3, 4, 7, 8, 9, 11, 12, 13, 14, 15, 17, 20, 21]
 OPS = ["op1", "op2", "op3"]
 RUL_CAP = 125.0
@@ -35,7 +36,7 @@ def load_raw(root, subset):
 
 
 def piecewise_rul(n_cycles, cap=RUL_CAP, offset=0.0):
-    """RUL tuyen tinh tung khuc: hang so `cap` luc dau, giam tuyen tinh ve cuoi."""
+    """Piecewise-linear RUL: constant `cap` at first, then linear decrease to the end."""
     r = np.arange(n_cycles - 1, -1, -1, dtype=np.float64) + offset
     return np.minimum(r, cap)
 
@@ -45,12 +46,12 @@ def _col(name):
 
 
 def select_features(tr, mode="paper", subset="FD001", n_pca=5, thr=0.35):
-    """Tra ve danh sach ten cot dung lam input.
+    """Return the list of column names used as input.
 
-    mode="paper"     : 3 op setting + 14 sensor doc tu chu giai Fig. 4 (input_size=17).
-    mode="classic14" : 3 op setting + tap 14 sensor kinh dien.
-    mode="auto"      : lam lai buoc cua paper — Z-score, PCA, roi giu sensor co
-                       |rho| lon voi quy dao suy giam (Eq. 3).
+    mode="paper"     : 3 op settings + 14 sensors read from Fig. 4 legends (input_size=17).
+    mode="classic14" : 3 op settings + the classic 14-sensor set.
+    mode="auto"      : redo the paper's procedure — Z-score, PCA, then keep sensors with
+                       large |rho| against the degradation trajectory (Eq. 3).
     """
     if mode == "paper":
         return OPS + [f"s{i}" for i in PAPER14[subset]]
@@ -63,12 +64,12 @@ def select_features(tr, mode="paper", subset="FD001", n_pca=5, thr=0.35):
     keep = sd > 1e-8
     Xn = np.zeros_like(X)
     Xn[:, keep] = (X[:, keep] - mu[keep]) / sd[keep]
-    # PCA (Eq. 2) tren phan bien thien — dung de xac nhan chieu chinh, khong dung de chieu input
+    # PCA (Eq. 2) on the variance — confirms principal dims only, not used to project input
     S = Xn[:, keep].T @ Xn[:, keep] / len(Xn)
     w, Q = np.linalg.eigh(S)
     order = np.argsort(w)[::-1][:n_pca]
     _ = Xn[:, keep] @ Q[:, order]
-    # y = RUL that cua tung dong trong train
+    # y = true RUL of each row in train
     y = np.concatenate([piecewise_rul(int((units == u).sum())) for u in np.unique(units)])
     rho = np.zeros(len(sens))
     for j in range(len(sens)):
@@ -80,7 +81,7 @@ def select_features(tr, mode="paper", subset="FD001", n_pca=5, thr=0.35):
 
 
 def condition_id(ops):
-    """6 che do van hanh cua FD002/FD004: op1,op2 lam tron la du de tach."""
+    """6 operating conditions of FD002/FD004: rounded op1,op2 suffice to separate them."""
     key = np.round(ops[:, 0], 0) * 1000 + np.round(ops[:, 1], 2) * 10 + np.round(ops[:, 2], 0)
     uniq = np.unique(key)
     return np.searchsorted(uniq, key), len(uniq)
@@ -88,15 +89,16 @@ def condition_id(ops):
 
 def build(root, subset, seq_len=45, feature_mode="paper", cond_norm=False,
           val_frac=0.1, seed=0, cap=RUL_CAP, eval_cap=RUL_CAP, norm="zscore"):
-    """Tra ve dict cac tensor numpy da san sang cho training.
+    """Return a dict of numpy arrays ready for training.
 
-    `cap`      : nguong cat RUL cho NHAN HUAN LUYEN — la sieu tham so hop le.
-    `eval_cap` : nguong cat cho NHAN DANH GIA (val + test) — phai CO DINH 125.
+    `cap`      : RUL cap for TRAINING LABELS — a legitimate hyperparameter.
+    `eval_cap` : cap for EVALUATION LABELS (val + test) — must stay FIXED at 125.
 
-    Hai thu nay bat buoc phai tach roi. Neu de chung mot `cap`, thay doi nguong se
-    thay doi luon nhan test, tuc thay doi THUOC DO: engine co RUL that cao (kho nhat)
-    bi ha nhan xuong sat vung mo hinh doan tot. Do 22-08: cap 110 ha nhan cua 28-85
-    engine moi bo (trung binh 2,6-4,6 RUL) va lam RMSE giam gia tao ~3 diem.
+    These two must be kept separate. With one shared `cap`, changing the cap also
+    changes the test labels, i.e. changes the METRIC: engines with high true RUL (the
+    hardest ones) get their labels pulled down near the range the model predicts well.
+    Measured 22-08: cap 110 lowered the labels of 28-85 engines per subset (by 2.6-4.6
+    RUL on average) and artificially reduced RMSE by ~3 points.
     """
     tr, te, rul_te = load_raw(root, subset)
     feats = select_features(tr, mode=feature_mode, subset=subset)
@@ -116,13 +118,13 @@ def build(root, subset, seq_len=45, feature_mode="paper", cond_norm=False,
             if mt.any():
                 Xte[mt] = (Xte_raw[mt] - mu) / sd
     elif norm == "minmax":
-        # min-max ve [0,1] — cach cua STA-HPINN (arXiv:2405.12377) va nhieu bai C-MAPSS
+        # min-max to [0,1] — as in STA-HPINN (arXiv:2405.12377) and many C-MAPSS papers
         lo, hi = Xtr_raw.min(0), Xtr_raw.max(0)
         rng_ = np.where(hi - lo < 1e-8, 1.0, hi - lo)
         Xtr = (Xtr_raw - lo) / rng_
         Xte = np.clip((Xte_raw - lo) / rng_, -0.5, 1.5)
     else:
-        mu, sd = Xtr_raw.mean(0), Xtr_raw.std(0)   # Eq. 1, thong ke chi tu tap train
+        mu, sd = Xtr_raw.mean(0), Xtr_raw.std(0)   # Eq. 1, stats from the train set only
         sd = np.where(sd < 1e-8, 1.0, sd)
         Xtr = (Xtr_raw - mu) / sd
         Xte = (Xte_raw - mu) / sd
@@ -133,7 +135,7 @@ def build(root, subset, seq_len=45, feature_mode="paper", cond_norm=False,
             m = units == u
             xu, yu = X[m], targets[m]
             n = len(xu)
-            if n < seq_len:   # engine test ngan hon cua so -> lap dong dau (left-pad)
+            if n < seq_len:   # test engine < window length -> repeat first row (left-pad)
                 pad = np.repeat(xu[:1], seq_len - n, axis=0)
                 xu = np.concatenate([pad, xu], 0)
                 yu = np.concatenate([np.repeat(yu[:1], seq_len - n), yu])
@@ -143,7 +145,7 @@ def build(root, subset, seq_len=45, feature_mode="paper", cond_norm=False,
                 xs.append(xu[s:s + seq_len])
                 ys.append(yu[s + seq_len - 1])
                 us.append(u)
-                ts.append(s + seq_len)          # so chu ky da troi qua o cuoi cua so
+                ts.append(s + seq_len)          # cycles elapsed at the end of the window
         return (np.asarray(xs, np.float32), np.asarray(ys, np.float32),
                 np.asarray(us, np.int64), np.asarray(ts, np.float32))
 
@@ -153,16 +155,16 @@ def build(root, subset, seq_len=45, feature_mode="paper", cond_norm=False,
     yev_row = np.concatenate([piecewise_rul(int((utr == u).sum()), eval_cap)
                               for u in np.unique(utr)])
     Xw, yw, uw, tw = windows(Xtr, utr, ytr_row)
-    _, yw_ev, _, _ = windows(Xtr, utr, yev_row)       # nhan val: luon eval_cap
+    _, yw_ev, _, _ = windows(Xtr, utr, yev_row)       # val labels: always eval_cap
 
     ute = te[:, 0]
-    # nhan test: RUL con lai o chu ky cuoi = rul_te[i]; nguoc ve dau chuoi thi cong don
+    # test labels: remaining RUL at last cycle = rul_te[i]; accumulates back to the start
     yte_row = np.concatenate([piecewise_rul(int((ute == u).sum()), eval_cap,
                                             offset=rul_te[i])
                               for i, u in enumerate(np.unique(ute))])
     Xt, yt, ut, tt = windows(Xte, ute, yte_row, only_last=True)
 
-    # tach validation theo ENGINE (khong tron cua so cua cung engine qua 2 phia)
+    # split validation by ENGINE (windows of one engine never end up on both sides)
     rng = np.random.RandomState(seed)
     eng = np.unique(utr)
     perm = rng.permutation(len(eng))
@@ -174,16 +176,16 @@ def build(root, subset, seq_len=45, feature_mode="paper", cond_norm=False,
         subset=subset, features=feats, seq_len=seq_len,
         Xtr=Xw[~vm], ytr=yw[~vm], Xval=Xw[vm], yval=yw_ev[vm],
         Xte=Xt, yte=yt, ute=ut,
-        # chu ky (chuan hoa) — input `t` cua AHPINN; thang chia lay tu tap train
+        # cycle (normalized) — the `t` input of AHPINN; scale taken from the train set
         ttr=tw[~vm] / tw.max(), tval=tw[vm] / tw.max(), tte=tt / tw.max(),
-        # toan bo cua so cua tung engine test — dung cho hinh 5 (quy dao RUL)
+        # all windows of each test engine — used for Fig. 5 (RUL trajectory)
         raw_test=(Xte, ute, yte_row),
         cap=cap, eval_cap=eval_cap,
     )
 
 
 def test_trajectory(d, unit):
-    """Moi cua so truot cua 1 engine test -> (X, y_true) de ve quy dao Fig. 5."""
+    """All sliding windows of 1 test engine -> (X, y_true) to plot the Fig. 5 trajectory."""
     Xte, ute, yte_row = d["raw_test"]
     L = d["seq_len"]
     m = ute == unit

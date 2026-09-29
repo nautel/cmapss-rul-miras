@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# #2 — chay cac phuong phap chinh voi CUNG 10 seed nhu baseline, de so sanh can bang.
+# #2 — run the main methods with the SAME 10 seeds as the baselines, for a fair comparison.
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -21,4 +21,4 @@ for ((i=0; i<NW; i++)); do
         --datasets FD002,FD004 --cond-norm --shard "$i/$NW" > "$OUT/logs/c$i.log" 2>&1 &
 done
 wait
-echo "== xong main10 =="
+echo "== main10 done =="

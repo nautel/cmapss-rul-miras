@@ -1,4 +1,4 @@
-"""Bao cao ket qua autoresearch: xu huong thiet ke tren VAL + bang TEST cuoi cung."""
+"""Autoresearch results report: design trends on VAL + final TEST table."""
 import argparse
 import glob
 import json
@@ -39,15 +39,15 @@ def main():
     p.add_argument("--md", default=None)
     a = p.parse_args()
 
-    out = ["# Autoresearch — tim phuong phap RUL manh tren C-MAPSS", "",
-           "Vong lap successive halving 3 tang, **chon loc hoan toan tren tap validation**; "
-           "tap test chi duoc mo mot lan o buoc cuoi cho top-3.", ""]
+    out = ["# Autoresearch — searching for a strong RUL method on C-MAPSS", "",
+           "3-stage successive-halving loop, **selection done entirely on the validation "
+           "set**; the test set is opened only once, at the final step, for the top-3.", ""]
 
-    # --- tien trinh cac tang ---
-    out += ["## Cac tang tim kiem (xep hang theo val)", "",
-            "| tang | so cau hinh | ngan sach | val tot nhat | val trung vi |",
+    # --- stage progression ---
+    out += ["## Search stages (ranked by val)", "",
+            "| stage | # configs | budget | best val | median val |",
             "|---|---|---|---|---|"]
-    budgets = {1: "30 epoch", 2: "70 epoch", 3: "150 epoch, 2 seed"}
+    budgets = {1: "30 epochs", 2: "70 epochs", 3: "150 epochs, 2 seeds"}
     survivors = None
     for s in (1, 2, 3):
         rs = load_stage(a.dir, s)
@@ -58,14 +58,14 @@ def main():
         survivors = rs
     out.append("")
 
-    # --- xu huong thiet ke o tang cuoi ---
+    # --- design trends in the last stage ---
     if survivors:
         keep = sorted(survivors, key=lambda r: r["val"])[:max(3, len(survivors) // 2)]
-        out += ["## Xu huong thiet ke — nhom song sot o tang cuoi so voi cau hinh cua paper", "",
-                "| tham so | paper (Table 2) | pho bien nhat trong nhom song sot |",
+        out += ["## Design trends — last-stage survivors vs. the paper's configuration", "",
+                "| parameter | paper (Table 2) | most common among survivors |",
                 "|---|---|---|"]
         paper_cfg = {"arch": "sbi:yes_yes_yes", "seq_len": 45, "rul_cap": 125,
-                     "feature_mode": "paper", "cond_norm": "khong neu",
+                     "feature_mode": "paper", "cond_norm": "not stated",
                      "num_hidden": 16, "ffn_hidden": 32, "encoder_layers": "3 / 2",
                      "bilstm_size": 32, "n_heads": 2, "lr": "5e-4 / 1e-4",
                      "dropout": "0.2 / 0.3", "weight_decay": 1e-5, "batch_size": 256}
@@ -75,17 +75,17 @@ def main():
             out.append(f"| `{k}` | {paper_cfg.get(k, '—')} | {top} |")
         out.append("")
 
-    # --- #5: tach bo tham gia tim kiem khoi bo held-out that ---
-    SEARCH = ["FD001", "FD004"]      # tim kiem chay tren 2 bo nay (qua val cua chinh chung)
-    HELD = ["FD002", "FD003"]        # hai bo nay chua he tham gia chon loc
+    # --- #5: separate the search subsets from the truly held-out ones ---
+    SEARCH = ["FD001", "FD004"]      # search ran on these 2 subsets (via their own val)
+    HELD = ["FD002", "FD003"]        # these two never took part in selection
 
-    # --- bang TEST cuoi ---
+    # --- final TEST table ---
     rows, cfg = load_final(a.dir)
     if rows:
         order = sorted(rows, key=lambda k: st.mean(
             [st.mean(rows[k][s]["rmse"]) for s in SUBSETS if s in rows[k]]))
-        out += ["## Ket qua TEST cuoi cung (3 seed moi o)", "",
-                "| cau hinh | " + " | ".join(SUBSETS) + " | TB | tham so |",
+        out += ["## Final TEST results (3 seeds per cell)", "",
+                "| config | " + " | ".join(SUBSETS) + " | mean | params |",
                 "|---|" + "---|" * 6]
         for i, k in enumerate(order, 1):
             v = rows[k]
@@ -94,41 +94,41 @@ def main():
             out.append(f"| #{i} `{k}` | " +
                        " | ".join(f"{m:.2f} ±{d:.2f}" for m, d in zip(rm, sd)) +
                        f" | **{st.mean(rm):.2f}** | {v[SUBSETS[0]]['n_params']} |")
-        out.append("| **paper cong bo** | " + " | ".join(f"{x:.2f}" for x in PAPER_RMSE) +
+        out.append("| **published paper** | " + " | ".join(f"{x:.2f}" for x in PAPER_RMSE) +
                    f" | {st.mean(PAPER_RMSE):.2f} | — |")
         out.append("")
-        out += ["**#5 — tach bo tham gia tim kiem khoi bo held-out.** Vong lap chi chay tren "
-                "`FD001` + `FD004` (qua tap val cua chinh chung), nen `FD002` + `FD003` la "
-                "held-out that. Neu con so tren hai nhom lech nhau nhieu thi do la dau hieu "
-                "cau hinh bi chuyen biet hoa cho cap dung de tim.", "",
-                "| cau hinh | tim kiem (FD001, FD004) | held-out (FD002, FD003) | chenh |",
+        out += ["**#5 — search subsets vs. held-out subsets.** The loop ran only on "
+                "`FD001` + `FD004` (via their own val sets), so `FD002` + `FD003` are "
+                "truly held out. A large gap between the two groups would signal that the "
+                "configs are over-specialized to the pair used for the search.", "",
+                "| config | search (FD001, FD004) | held-out (FD002, FD003) | gap |",
                 "|---|---|---|---|"]
         for i, k in enumerate(order, 1):
             v = rows[k]
             a_ = st.mean([st.mean(v[s]["rmse"]) for s in SEARCH if s in v])
             b_ = st.mean([st.mean(v[s]["rmse"]) for s in HELD if s in v])
             out.append(f"| #{i} `{k}` | {a_:.2f} | {b_:.2f} | {b_ - a_:+.2f} |")
-        out.append("| ICL4RUL [41] (paper trich) | " +
+        out.append("| ICL4RUL [41] (cited in paper) | " +
                    " | ".join(f"{x:.2f}" for x in TABLE3["ICL4RUL [41]"]["rmse"]) +
                    f" | {st.mean(TABLE3['ICL4RUL [41]']['rmse']):.2f} | — |")
         out.append("")
 
-        out += ["### Score", "", "| cau hinh | " + " | ".join(SUBSETS) + " | TB |",
+        out += ["### Score", "", "| config | " + " | ".join(SUBSETS) + " | mean |",
                 "|---|" + "---|" * 5]
         for i, k in enumerate(order, 1):
             v = rows[k]
             sc = [st.mean(v[s]["score"]) for s in SUBSETS if s in v]
             out.append(f"| #{i} `{k}` | " + " | ".join(f"{x:.1f}" for x in sc) +
                        f" | **{st.mean(sc):.1f}** |")
-        out.append("| **paper cong bo** | " + " | ".join(f"{x:.2f}" for x in PAPER_SCORE) +
+        out.append("| **published paper** | " + " | ".join(f"{x:.2f}" for x in PAPER_SCORE) +
                    f" | {st.mean(PAPER_SCORE):.1f} |")
         out.append("")
 
-        out += ["### Cau hinh chi tiet", ""]
+        out += ["### Configuration details", ""]
         for i, k in enumerate(order, 1):
             c = cfg[k]
             v = rows[k]
-            out.append(f"**#{i} `{k}`** — val (tang 3) = {v[SUBSETS[0]]['val_stage']:.3f}")
+            out.append(f"**#{i} `{k}`** — val (stage 3) = {v[SUBSETS[0]]['val_stage']:.3f}")
             out.append("")
             out.append("```")
             out.append("  ".join(f"{x}={c[x]}" for x in KEYS[:5]))
@@ -139,10 +139,10 @@ def main():
         vals = [(k, rows[k][SUBSETS[0]]["val_stage"]) for k in order]
         best_val = min(vals, key=lambda x: x[1])[0]
         if best_val != order[0]:
-            out += ["> Luu y ve phuong phap: cau hinh co val TOT NHAT "
-                    f"(`{best_val}`) khong phai cau hinh co test tot nhat (`{order[0]}`). "
-                    "Val khong du bao hoan hao test — do chinh la ly do phai chot top-K "
-                    "theo val roi moi mo test, thay vi xep hang lai theo test.", ""]
+            out += ["> Methodological note: the config with the BEST val "
+                    f"(`{best_val}`) is not the config with the best test (`{order[0]}`). "
+                    "Val does not predict test perfectly — that is exactly why top-K must "
+                    "be fixed by val before opening test, instead of re-ranking by test.", ""]
 
     md = "\n".join(out)
     print(md)

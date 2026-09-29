@@ -1,18 +1,19 @@
-"""RVE / TSHAE — bo ma hoa bien phan voi nut that CUC HEP cho du doan RUL.
+"""RVE / TSHAE — variational encoder with an EXTREMELY NARROW bottleneck for RUL prediction.
 
-Nguon hoc tap: `external_code/Time-Series-Hybrid-Autoencoder` (insdout), la ban cai
-dat cua huong "variational encoding" (Costa & Sanchez, RESS 2022). Cau hinh goc cua ho:
+Reference code: `external_code/Time-Series-Hybrid-Autoencoder` (insdout), an implementation
+of the "variational encoding" approach (Costa & Sanchez, RESS 2022). Their original config:
 LSTM hidden 300, **latent_dim = 2**, loss = Recon(1) + Reg(1) + **Triplet(150)** + KL(0).
 
-Y chinh, va la thu khac han moi thu da chay trong du an nay: ep bieu dien qua mot nut
-that 2-3 chieu roi buoc khong gian latent do co CAU TRUC don dieu theo muc suy giam.
-STA-HPINN (arXiv:2405.12377) doc lap cung nen xuong 3 chieu. Hai nguon doc lap, cung
-mot ket luan — trong khi paper 1, ho Miras va cau hinh autoresearch deu di huong nguoc
-lai (tang dung luong).
+Key idea, and what sets it apart from everything else run in this project: force the
+representation through a 2-3-dim bottleneck, then constrain that latent space to have a
+MONOTONIC STRUCTURE with respect to degradation level. STA-HPINN (arXiv:2405.12377) also
+independently compresses down to 3 dims. Two independent sources, same conclusion —
+whereas paper 1, the Miras family and the autoresearch config all go the opposite way
+(adding capacity).
 
-Triplet o day dung **batch-hard mining** thay vi dataloader sinh cap san: trong moi
-batch, positive la mau co RUL gan nhat, negative la mau co RUL xa nhat. Tuong duong
-ve muc tieu ma khong can doi duong ong du lieu.
+The triplet loss here uses **batch-hard mining** instead of a dataloader that pre-generates
+pairs: within each batch, the positive is the sample with the closest RUL and the negative
+is the sample with the farthest RUL. Same objective, without changing the data pipeline.
 """
 import torch
 import torch.nn as nn
@@ -56,10 +57,10 @@ class RVE(nn.Module):
 
 
 def batch_hard_triplet(z, y, margin=0.4):
-    """Trong moi batch: positive = RUL gan nhat, negative = RUL xa nhat.
+    """Within each batch: positive = closest RUL, negative = farthest RUL.
 
-    Thay cho dataloader sinh cap cua ban goc; cung muc tieu — ep khoang cach trong
-    latent bam theo khoang cach ve muc suy giam.
+    Replaces the original's pair-generating dataloader; same objective — force distances
+    in latent space to track distances in degradation level.
     """
     if len(z) < 3:
         return z.new_zeros(())

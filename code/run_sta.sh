@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tai tao STA-HPINN (arXiv:2405.12377) + ablation thanh phan physics-informed.
-#   nhom `phys`   : ban day du, 10 seed (paper trung binh 10 lan chay)
-#   nhom `nophys` : bo loss vat ly, 5 seed -> do dong gop THAT cua AHPINN
+# Re-implement STA-HPINN (arXiv:2405.12377) + ablation of the physics-informed part.
+#   group `phys`   : full version, 10 seeds (the paper averages 10 runs)
+#   group `nophys` : physics loss removed, 5 seeds -> measures AHPINN's REAL contribution
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -10,7 +10,7 @@ NW=${NW:-3}
 cd "$(dirname "$0")" || exit 1
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
-echo "== STA-HPINN · GPU ${GPUS[*]} · $NW x2 worker =="
+echo "== STA-HPINN · GPU ${GPUS[*]} · $NW x2 workers =="
 for ((i=0; i<NW; i++)); do
     g=${GPUS[$((i % ${#GPUS[@]}))]}
     CUDA_VISIBLE_DEVICES=$g OMP_NUM_THREADS=2 \
@@ -21,5 +21,5 @@ for ((i=0; i<NW; i++)); do
         --shard "$i/$NW" > "$OUT/logs/nophys$i.log" 2>&1 &
 done
 wait
-echo "== xong STA =="
+echo "== STA done =="
 grep -h '^RESULT' "$OUT"/logs/*.log | sort

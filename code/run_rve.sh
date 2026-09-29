@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Kiem chung gia thuyet "nut that hep" hoc tu TSHAE + STA-HPINN.
-#   4 bien the x 4 do rong latent (2/3/8/32) x 4 bo con x 10 seed = 640 run
-# Bien the tach rieng dong gop cua tung thanh phan: reconstruction va triplet.
+# Test the "narrow bottleneck" hypothesis taken from TSHAE + STA-HPINN.
+#   4 variants x 4 latent widths (2/3/8/32) x 4 subsets x 10 seeds = 640 runs
+# The variants isolate each component's contribution: reconstruction and triplet.
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -13,7 +13,7 @@ S=${S:-0,1,2,3,4,5,6,7,8,9}
 cd "$(dirname "$0")" || exit 1
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
-echo "== RVE · GPU ${GPUS[*]} · $NW x2 worker · variants=$V latents=$L =="
+echo "== RVE · GPU ${GPUS[*]} · $NW x2 workers · variants=$V latents=$L =="
 for ((i=0; i<NW; i++)); do
     g=${GPUS[$((i % ${#GPUS[@]}))]}
     CUDA_VISIBLE_DEVICES=$g OMP_NUM_THREADS=2 \
@@ -25,4 +25,4 @@ for ((i=0; i<NW; i++)); do
         > "$OUT/logs/c$i.log" 2>&1 &
 done
 wait
-echo "== xong RVE =="
+echo "== RVE done =="

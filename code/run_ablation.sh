@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# #8 — chay ablation co lap cho cau hinh cuoi. Goi sau khi autoresearch xong.
+# #8 — run isolated ablations of the final config. Call after autoresearch finishes.
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 AR=${AR:-/home/lab/letuan/runs/rul_ar2}
@@ -17,4 +17,4 @@ for ((i=0; i<NW; i++)); do
         > "$OUT/logs/abl$i.log" 2>&1 &
 done
 wait
-echo "== xong ablation =="
+echo "== ablation done =="

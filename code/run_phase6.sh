@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Giai doan 6 — hai cau hoi con lai sau khi co bang xep hang Miras:
-#   (a) Miras thua SBi vi CO CHE hay chi vi IT THAM SO? -> gan dau BiLSTM cua paper 1
-#       len backbone Miras (9k -> ~49k tham so, bang SBi) va do lai.
-#   (b) Cac bien the phu cua paper 2 (elastic net, robust, RetNet) va BO NHO MLP SAU
-#       (titans_mlp, §4) co thay doi ket luan khong?
+# Phase 6 — two open questions after the Miras leaderboard:
+#   (a) Does Miras trail SBi due to its MECHANISM or just FEWER PARAMS? -> attach paper 1's
+#       BiLSTM head to the Miras backbone (9k -> ~49k params, like SBi) and re-measure.
+#   (b) Do paper 2's secondary variants (elastic net, robust, RetNet) and DEEP MLP MEMORY
+#       (titans_mlp, §4) change the conclusion?
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -12,12 +12,12 @@ SEEDS=${SEEDS:-0,1,2}
 NW=${NW:-7}
 EP=${EP:-200}
 PAT=${PAT:-15}
-# (a) 3 kien truc dan dau + dau BiLSTM
+# (a) top 3 architectures + BiLSTM head
 BL=${BL:-gated_deltanet+bilstm,titans+bilstm,mamba2+bilstm}
 EXTRA=${EXTRA:-retnet,elastic,robust}
-# (b) bo nho MLP sau: do duoc 73,9 s/epoch = 13x ban tuyen tinh (2 ep, FD001, V100).
-# 200 epoch x 4 run = 16 gio -> khong kha thi. Tach ra so sanh rieng voi titans tuyen tinh
-# o CUNG ngan sach 60 epoch, ghi vao thu muc rieng de khong lan voi luoi chinh.
+# (b) deep MLP memory: measured 73.9 s/epoch = 13x the linear version (2 ep, FD001, V100).
+# 200 epochs x 4 runs = 16 hours -> infeasible. Compare separately with linear titans at
+# the SAME 60-epoch budget, in a separate dir so it doesn't mix with the main grid.
 MLP=${MLP:-titans_mlp,titans}
 MLP_OUT=${MLP_OUT:-/home/lab/letuan/runs/rul_mlp}
 MLP_EP=${MLP_EP:-60}
@@ -49,5 +49,5 @@ for i in 0 1; do
         --shard "$i/2" > "$MLP_OUT/logs/mlp$i.log" 2>&1 &
 done
 wait
-echo "== xong giai doan 6 =="
+echo "== phase 6 done =="
 grep -h '^RESULT' "$OUT"/logs/*.log | sort

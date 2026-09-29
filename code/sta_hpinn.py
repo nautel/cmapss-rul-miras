@@ -1,17 +1,18 @@
-"""Tai tao STA-HPINN — Spatio-temporal Attention-based Hidden Physics-informed NN.
+"""STA-HPINN re-implementation — Spatio-temporal Attention-based Hidden Physics-informed NN.
 
-Nguon: Feilong Jiang et al., arXiv:2405.12377 (2024). Day la ket qua SOTA gan nhat
-tim duoc co day du RMSE + Score tren 4 bo con C-MAPSS: 11,27 / 13,21 / 8,30 / 13,31.
+Source: Feilong Jiang et al., arXiv:2405.12377 (2024). This is the most recent SOTA result
+found that reports both RMSE + Score on all 4 C-MAPSS subsets: 11.27 / 13.21 / 8.30 / 13.31.
 
-Cau truc (muc 2 cua paper):
-  Encoder = embedding -> HAI nhanh attention song song -> feature fusion
-     nhanh cam bien : X^T (S,T) -> Linear(T->D) -> self-attn tren chieu S -> (S,D)
-     nhanh thoi gian: X   (T,S) -> Linear(S->D) -> self-attn tren chieu T -> (T,D)
-     fusion: noi thanh (T+S, D) -> Conv kernel (T+S)x1, 3 kenh -> SENet -> Linear -> H (3 chieu)
+Architecture (Section 2 of the paper):
+  Encoder = embedding -> TWO parallel attention branches -> feature fusion
+     sensor branch: X^T (S,T) -> Linear(T->D) -> self-attn over the S axis -> (S,D)
+     time branch  : X   (T,S) -> Linear(S->D) -> self-attn over the T axis -> (T,D)
+     fusion: concat to (T+S, D) -> Conv kernel (T+S)x1, 3 channels -> SENet -> Linear
+             -> H (3-dim)
   AHPINN:
-     MLP  : (H, t) -> RUL            (3 lop an x 10 neuron, BatchNorm, tanh)
-     NFNN : (H, dRUL/dH, d2RUL/dH2, d3RUL/dH3) -> N     (co self-attention)
-     residual vat ly f = dRUL/dt - N ; loss = l1*L_data + l2*L_f
+     MLP  : (H, t) -> RUL            (3 hidden layers x 10 neurons, BatchNorm, tanh)
+     NFNN : (H, dRUL/dH, d2RUL/dH2, d3RUL/dH3) -> N     (with self-attention)
+     physics residual f = dRUL/dt - N ; loss = l1*L_data + l2*L_f
 """
 import math
 import torch
@@ -20,7 +21,7 @@ import torch.nn.functional as F
 
 
 class AttnBlock(nn.Module):
-    """Self-attention + FFN, moi cai co residual + LayerNorm (Fig. 2)."""
+    """Self-attention + FFN, each with residual + LayerNorm (Fig. 2)."""
 
     def __init__(self, d, n_heads=1, ffn=None, dropout=0.1):
         super().__init__()
@@ -37,7 +38,7 @@ class AttnBlock(nn.Module):
 
 
 class SENet(nn.Module):
-    """Squeeze-and-excitation tren so kenh (3 kenh cua khoi fusion)."""
+    """Squeeze-and-excitation over channels (the 3 channels of the fusion block)."""
 
     def __init__(self, ch, r=1):
         super().__init__()
@@ -52,8 +53,8 @@ class SENet(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, seq_len, n_sensor, d=32, n_heads=1, hidden=3, dropout=0.1):
         super().__init__()
-        self.emb_s = nn.Linear(seq_len, d)     # nhanh cam bien: moi cam bien 1 token
-        self.emb_t = nn.Linear(n_sensor, d)    # nhanh thoi gian: moi buoc 1 token
+        self.emb_s = nn.Linear(seq_len, d)     # sensor branch: one token per sensor
+        self.emb_t = nn.Linear(n_sensor, d)    # time branch: one token per time step
         self.att_s = AttnBlock(d, n_heads, dropout=dropout)
         self.att_t = AttnBlock(d, n_heads, dropout=dropout)
         self.conv = nn.Conv1d(1, 3, kernel_size=seq_len + n_sensor, stride=1)
@@ -65,7 +66,7 @@ class Encoder(nn.Module):
         ft = self.att_t(self.emb_t(x))                     # (B,T,D)
         fr = torch.cat([ft, fs], dim=1)                    # (B,T+S,D)
         B, L, D = fr.shape
-        # conv kernel (T+S)x1: nen chieu (T+S) ve 1, giu D, ra 3 kenh
+        # conv kernel (T+S)x1: collapse the (T+S) axis to 1, keep D, output 3 channels
         h = self.conv(fr.transpose(1, 2).reshape(B * D, 1, L))     # (B*D,3,1)
         h = self.se(h).reshape(B, D, 3).transpose(1, 2).reshape(B, 3 * D)
         return self.out(h)                                 # (B,hidden)
@@ -83,7 +84,7 @@ def mlp(sizes, act=nn.Tanh, bn=True):
 
 
 class NFNN(nn.Module):
-    """Mang hoc ham phi tuyen N, tang cuong bang self-attention (Fig. 4)."""
+    """Network learning the nonlinear function N, enhanced with self-attention (Fig. 4)."""
 
     def __init__(self, n_in, d=16, n_hidden=10, layers=3):
         super().__init__()
@@ -109,7 +110,7 @@ class STAHPINN(nn.Module):
         return self.mlp(torch.cat([H, t], dim=1))
 
     def forward(self, x, t=None, physics=False):
-        if t is None:                          # suy dien thuan: khong can dao ham
+        if t is None:                          # pure inference: no derivatives needed
             H = self.enc(x)
             z = torch.zeros(x.shape[0], 1, device=x.device, dtype=x.dtype)
             return self.rul_from(H, z).squeeze(-1)
@@ -126,12 +127,12 @@ class STAHPINN(nn.Module):
         d3 = g(d2, H)                           # d3RUL/dH3
         dt = g(u, t)                            # dRUL/dt        (B,1)
         N = self.nfnn(torch.cat([H, d1, d2, d3], dim=1))
-        return u.squeeze(-1), (dt - N).squeeze(-1)      # (RUL, residual vat ly f)
+        return u.squeeze(-1), (dt - N).squeeze(-1)      # (RUL, physics residual f)
 
 
 class ReLoBRaLo:
-    """Relative Loss Balancing with Random Lookback (Bischof & Kraus 2021) — dieu
-    chinh trong so giua loss du lieu va loss vat ly trong qua trinh huan luyen."""
+    """Relative Loss Balancing with Random Lookback (Bischof & Kraus 2021) — adjusts
+    the weights between the data loss and the physics loss during training."""
 
     def __init__(self, n=2, alpha=0.999, tau=1.0, rho=0.999):
         self.n, self.alpha, self.tau, self.rho = n, alpha, tau, rho

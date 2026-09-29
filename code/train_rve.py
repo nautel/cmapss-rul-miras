@@ -1,11 +1,11 @@
-"""Huan luyen RVE + ablation cho chinh y tuong "nut that hep".
+"""Train RVE + ablation of the "narrow bottleneck" idea itself.
 
-Cac bien the (`--variant`):
-  full     : latent 2 + recon + triplet          — ban goc TSHAE
-  notrip   : bo triplet                          — do dong gop cua metric learning
-  norecon  : bo reconstruction                   — do dong gop cua nhanh tai tao
-  plain    : chi regression qua nut that         — nut that thuan, khong regularization
-`--latent` quet do rong nut that: 2 / 3 / 8 / 32.
+Variants (`--variant`):
+  full     : latent 2 + recon + triplet          — the original TSHAE
+  notrip   : drop triplet                        — contribution of metric learning
+  norecon  : drop reconstruction                 — contribution of reconstruction branch
+  plain    : regression through bottleneck only  — pure bottleneck, no regularization
+`--latent` sweeps the bottleneck width: 2 / 3 / 8 / 32.
 """
 import argparse
 import json

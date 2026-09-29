@@ -1,15 +1,15 @@
-"""Kiem dinh thong ke cho ket qua RUL — thay cho viec so hai so trung binh.
+"""Statistical tests for RUL results — instead of just comparing two means.
 
-Hai nguon bat dinh, phai tach roi:
-  (a) khoi tao mang / thu tu batch  -> chay nhieu seed
-  (b) tap test huu han (100-259 engine) -> bootstrap tren ENGINE
+Two sources of uncertainty, which must be kept separate:
+  (a) network initialization / batch order  -> run several seeds
+  (b) finite test set (100-259 engines) -> bootstrap over ENGINES
 
-Ham chinh:
-  `ci`      : khoang tin cay bootstrap cho RMSE / Score cua mot phuong phap
-  `compare` : khoang tin cay cua HIEU giua hai phuong phap, bootstrap ghep cap
-              tren cung tap engine (paired) — CI khong chua 0 thi khac biet co nghia
-  `paired`  : Wilcoxon signed-rank tren sai so tung engine + t-test ghep cap tren seed
-  Hieu chinh da so sanh: Holm-Bonferroni.
+Main functions:
+  `ci`      : bootstrap confidence interval for one method's RMSE / Score
+  `compare` : confidence interval of the DIFFERENCE between two methods, paired bootstrap
+              over the same engine set — a CI that excludes 0 means a significant difference
+  `paired`  : Wilcoxon signed-rank on per-engine errors + paired t-test over seeds
+  Multiple-comparison correction: Holm-Bonferroni.
 """
 import argparse
 import glob
@@ -34,12 +34,12 @@ def score(p, t):
 
 
 def load(dirs, pattern="pred_*.npz", merge_cn=True):
-    """-> {(method, subset): {seed: (pred, true)}}  ; ten file: pred_<sub>_<method>_s<seed>*.npz
+    """-> {(method, subset): {seed: (pred, true)}}  ; filename: pred_<sub>_<method>_s<seed>*.npz
 
-    `merge_cn=True`: bo hau to `_cn`. Chuan hoa theo che do van hanh chi ap cho
-    FD002/FD004 (FD001/FD003 chi co 1 che do nen hai cach la mot), nen `bl_dcnn` va
-    `bl_dcnn_cn` la CUNG mot phuong phap chay tren hai nhom bo con khac nhau, khong
-    phai hai phuong phap.
+    `merge_cn=True`: drop the `_cn` suffix. Operating-condition normalization is applied
+    only to FD002/FD004 (FD001/FD003 have 1 condition, so both approaches coincide), so
+    `bl_dcnn` and `bl_dcnn_cn` are the SAME method run on two different groups of subsets,
+    not two methods.
     """
     out = defaultdict(dict)
     for d in dirs:
@@ -61,7 +61,7 @@ def _boot_idx(n, n_boot, rng):
 
 
 def ci(data, metric=rmse, n_boot=2000, level=0.95, rng=None):
-    """CI bootstrap tren engine, trung binh qua seed."""
+    """Engine-level bootstrap CI, averaged over seeds."""
     rng = rng or np.random.default_rng(0)
     seeds = sorted(data)
     n = len(data[seeds[0]][1])
@@ -76,11 +76,11 @@ def ci(data, metric=rmse, n_boot=2000, level=0.95, rng=None):
 
 
 def compare(a, b, metric=rmse, n_boot=2000, level=0.95, rng=None):
-    """CI bootstrap cua hieu (A - B), ghep cap tren cung tap engine tai sinh."""
+    """Bootstrap CI of the difference (A - B), paired over the same resampled engine set."""
     rng = rng or np.random.default_rng(0)
     sa, sb = sorted(a), sorted(b)
     n = len(a[sa[0]][1])
-    assert len(b[sb[0]][1]) == n, "hai phuong phap phai cung tap test"
+    assert len(b[sb[0]][1]) == n, "both methods must share the same test set"
     idx = _boot_idx(n, n_boot, rng)
     d = np.empty(n_boot)
     for k in range(n_boot):
@@ -90,20 +90,20 @@ def compare(a, b, metric=rmse, n_boot=2000, level=0.95, rng=None):
     point = (np.mean([metric(a[s][0], a[s][1]) for s in sa])
              - np.mean([metric(b[s][0], b[s][1]) for s in sb]))
     lo, hi = np.quantile(d, [(1 - level) / 2, 1 - (1 - level) / 2])
-    # p hai phia tu phan phoi bootstrap cua hieu
+    # two-sided p from the bootstrap distribution of the difference
     p = 2 * min((d <= 0).mean(), (d >= 0).mean())
     return dict(diff=float(point), lo=float(lo), hi=float(hi),
                 p_boot=float(min(1.0, p)), sig=bool(lo > 0 or hi < 0))
 
 
 def paired(a, b):
-    """Wilcoxon tren sai so tung engine (gop seed) + t-test ghep cap tren seed.
+    """Wilcoxon on per-engine errors (seeds pooled) + paired t-test over seeds.
 
-    CANH BAO: cot Wilcoxon o day chi de DOI CHIEU, khong dung de ket luan. No coi
-    100 engine x 10 seed = 1000 quan sat doc lap, trong khi cung 100 engine bi lap
-    lai 10 lan. Hau qua: p ra 1e-04 den 1e-59 cho MOI cap, ke ca nhung cap ma
-    bootstrap tren engine cho thay khong khac nhau. Don vi lay mau dung la ENGINE
-    -> dung cot bootstrap ghep cap.
+    WARNING: the Wilcoxon column here is for REFERENCE only, not for conclusions. It
+    treats 100 engines x 10 seeds = 1000 independent observations, while the same 100
+    engines are repeated 10 times. Result: p of 1e-04 to 1e-59 for EVERY pair, even
+    pairs the engine-level bootstrap shows are not different. The correct sampling unit
+    is the ENGINE -> use the paired bootstrap column.
     """
     sa, sb = sorted(a), sorted(b)
     ea = np.concatenate([(a[s][0] - a[s][1]) ** 2 for s in sa])
@@ -125,7 +125,7 @@ def paired(a, b):
 
 
 def holm(pvals):
-    """Hieu chinh Holm-Bonferroni; tra ve p da hieu chinh theo dung thu tu dau vao."""
+    """Holm-Bonferroni correction; returns adjusted p in the original input order."""
     m = len(pvals)
     order = np.argsort(pvals)
     adj = np.empty(m)
@@ -139,8 +139,8 @@ def holm(pvals):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--dirs", nargs="+", required=True)
-    p.add_argument("--ref", required=True, help="phuong phap lam moc de so sanh")
-    p.add_argument("--methods", default=None, help="loc, ngan bang dau phay")
+    p.add_argument("--ref", required=True, help="reference method to compare against")
+    p.add_argument("--methods", default=None, help="filter, comma-separated")
     p.add_argument("--n-boot", type=int, default=2000)
     p.add_argument("--md", default=None)
     a = p.parse_args()
@@ -150,19 +150,20 @@ def main():
     if a.methods:
         keep = set(a.methods.split(","))
         methods = [m for m in methods if m in keep]
-    assert a.ref in methods, f"khong thay moc {a.ref}; co: {methods}"
+    assert a.ref in methods, f"reference {a.ref} not found; available: {methods}"
 
-    out = ["# Kiem dinh thong ke", "",
-           f"Moc so sanh: `{a.ref}`. CI 95% bootstrap {a.n_boot} lan **tren engine** "
-           "(tai sinh cung tap engine cho ca hai phia — ghep cap), trung binh qua seed. "
-           "`p` Holm-Bonferroni hieu chinh trong tung bo con.", ""]
+    out = ["# Statistical tests", "",
+           f"Reference: `{a.ref}`. 95% bootstrap CI, {a.n_boot} resamples **over engines** "
+           "(the same engine set resampled for both sides — paired), averaged over seeds. "
+           "`p` Holm-Bonferroni-adjusted within each subset.", ""]
 
     for sub in SUBSETS:
         rows = [m for m in methods if data.get((m, sub))]
         if len(rows) < 2:
             continue
         out += [f"## {sub}", "",
-                "| phuong phap | RMSE [CI 95%] | hieu so voi moc [CI] | p (boot) | p (Holm) | p Wilcoxon | seed |",
+                "| method | RMSE [95% CI] | diff vs. reference [CI] | p (boot) | "
+                "p (Holm) | p Wilcoxon | seed |",
                 "|---|---|---|---|---|---|---|"]
         recs, ps = [], []
         for m in rows:
@@ -180,7 +181,7 @@ def main():
         k = 0
         for m, pt, lo, hi, c, w in sorted(recs, key=lambda r: r[1]):
             if c is None:
-                out.append(f"| **`{m}`** (moc) | {pt:.2f} [{lo:.2f}, {hi:.2f}] | — | — | — | — | "
+                out.append(f"| **`{m}`** (ref.) | {pt:.2f} [{lo:.2f}, {hi:.2f}] | — | — | — | — | "
                            f"{len(data[(m, sub)])} |")
                 continue
             i = [r[0] for r in recs if r[4] is not None].index(m)
@@ -191,10 +192,12 @@ def main():
                        f"{len(data[(m, sub)])} |")
             k += 1
         out.append("")
-        out.append("Hieu **am** = tot hon moc. In dam = co y nghia sau hieu chinh Holm (p < 0,05).")
+        out.append("**Negative** difference = better than reference. "
+                   "Bold = significant after Holm correction (p < 0.05).")
         out.append("")
-        out.append("Cot `p Wilcoxon` chi de doi chieu — no coi n_engine x n_seed la quan sat doc lap "
-                   "nen ra rat nho cho moi cap; dung cot bootstrap ghep cap de ket luan.")
+        out.append("The `p Wilcoxon` column is for reference only — it treats "
+                   "n_engine x n_seed as independent observations, so it comes out tiny for "
+                   "every pair; use the paired bootstrap column for conclusions.")
         out.append("")
 
     md = "\n".join(out)

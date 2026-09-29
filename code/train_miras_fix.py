@@ -1,15 +1,16 @@
-"""Chay lai ho Miras sau khi sua loi (09-2026), cung pipeline voi moc so sanh.
+"""Rerun the Miras family after the bug fixes (09-2026), same pipeline as the baseline.
 
-Loi da sua trong miras.py:
-  1. memora sai dau (di LEN gradient)
-  2. titans mat momentum qua ranh gioi chunk
-  3. nhanh cam bien dung mask nhan qua tren truc khong co thu tu
-  4. bo `rank_bias` (V la chieu hoc duoc, khong phai RUL -> y tuong khong dung)
-Va do anh huong cua xap xi chunk bang `--chunks` (1 = truy hoi chinh xac).
+Bugs fixed in miras.py:
+  1. memora had the wrong sign (went UP the gradient)
+  2. titans lost momentum across chunk boundaries
+  3. the sensor branch used a causal mask on an axis with no ordering
+  4. removed `rank_bias` (V is a learned dimension, not RUL -> the idea is invalid)
+Also measures the effect of the chunk approximation via `--chunks` (1 = exact recurrence).
 
-Pipeline chung cho MOI mo hinh (ke ca moc DCNN): 14 sensor kinh dien, cua so
-40 (FD001) / 60 (con lai), min-max cho FD001/FD003, chuan hoa theo che do van hanh
-cho FD002/FD004, nhan cat 125, val 20% engine, dung som tren val.
+Shared pipeline for EVERY model (including the DCNN baseline): classic 14 sensors,
+window 40 (FD001) / 60 (others), min-max for FD001/FD003, per-operating-condition
+normalization for FD002/FD004, labels capped at 125, val = 20% of engines, early
+stopping on val.
 """
 import argparse
 import json
@@ -29,14 +30,14 @@ from train import rmse, score, config_for
 SEQ = {"FD001": 40, "FD002": 60, "FD003": 60, "FD004": 60}
 MIRAS = ["linear_attn", "mamba2", "deltanet", "gated_deltanet", "titans",
          "moneta", "yaad", "memora"]
-# ten -> (arch, ghi de cau hinh, trong so triplet)
+# name -> (arch, config overrides, triplet weight)
 IDEAS = {v: (v, {}, 0.0) for v in MIRAS}
 IDEAS.update({
     "titans+bilstm": ("titans+bilstm", {}, 0.0),
     "titans_R4":     ("titans", {"mem_rank": 4}, 0.0),
     "titans_B3trip": ("titans", {"bottleneck": 3}, 150.0),
     "titans_S":      ("titans", {"sensor_branch": 1}, 0.0),
-    "dcnn":          ("bl:dcnn", {}, 0.0),               # moc, cung pipeline
+    "dcnn":          ("bl:dcnn", {}, 0.0),               # baseline, same pipeline
 })
 
 
@@ -57,7 +58,7 @@ def run(subset, idea, seed, chunk, root, outdir, cond_norm, epochs=200, patience
                      lr=5e-4, batch_size=256)
     cfg.update(ov)
     cfg["chunk"] = chunk
-    assert SEQ[subset] % chunk == 0, f"seq_len {SEQ[subset]} khong chia het chunk {chunk}"
+    assert SEQ[subset] % chunk == 0, f"seq_len {SEQ[subset]} not divisible by chunk {chunk}"
     torch.manual_seed(seed)
     np.random.seed(seed)
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -146,9 +147,9 @@ if __name__ == "__main__":
     for j, (s, k, c, sd) in enumerate(jobs):
         if j % n != i:
             continue
-        cn = s in ("FD002", "FD004")          # chuan hoa theo che do van hanh
+        cn = s in ("FD002", "FD004")          # per-operating-condition normalization
         if k == "dcnn" and c != int(a.chunks.split(",")[0]):
-            continue                          # DCNN khong co chunk: chay 1 lan
+            continue                          # DCNN has no chunk: run once
         tag = f"{s}_mf_{k}_c{c}_s{sd}" + ("_cn" if cn else "")
         if os.path.exists(os.path.join(a.outdir, f"res_{tag}.json")):
             print(f"SKIP {tag}", flush=True)

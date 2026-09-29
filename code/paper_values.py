@@ -1,6 +1,6 @@
-"""So lieu cong bo trong paper — de doi chieu voi ket qua tai lap."""
+"""Numbers published in the paper — for comparison against the reproduced results."""
 
-# Table 3 — RMSE / Score cua tung phuong phap
+# Table 3 — RMSE / Score for each method
 TABLE3 = {
     "BiLSTM":           dict(rmse=[17.31, 25.82, 17.76, 28.17], score=[395.33, 6117.25, 936.04, 7618.01]),
     "Transformer [37]": dict(rmse=[13.33, 13.37, 13.28, 13.02], score=[293.70, 1628.34, 302.10, 3108.32]),
@@ -11,7 +11,7 @@ TABLE3 = {
     "SBi-Transformer":  dict(rmse=[11.37, 12.05, 11.13, 11.18], score=[267.54, 841.02, 273.44, 926.23]),
 }
 
-# Table 4 / Table 5 — ablation (thu tu FD001..FD004)
+# Table 4 / Table 5 — ablation (order FD001..FD004)
 ABL_RMSE = {
     "no_no_yes":   [13.76, 23.40, 13.32, 23.45],
     "yes_no_no":   [13.33, 13.37, 13.28, 13.02],
@@ -27,7 +27,7 @@ ABL_SCORE = {
     "yes_yes_yes": [267.54, 841.02, 273.44, 926.23],
 }
 
-# Table 6 — thoi gian moi epoch (giay)
+# Table 6 — time per epoch (seconds)
 TABLE6 = {
     "CATA-TCN [42]":   [6.91, 6.95, 7.84, 7.79],
     "LSTM [43]":       [6.2, 16.4, 7.5, 19.5],
@@ -44,10 +44,10 @@ ABL_LABEL = {
 SUBSETS = ["FD001", "FD002", "FD003", "FD004"]
 
 
-# --- #7: dinh vi so voi van lieu -------------------------------------------
-# Bang so sanh trich tu Table 2 cua STA-HPINN (Spatio-temporal Attention-based Hidden
-# Physics-informed NN), arXiv:2405.12377, muc 4. Day la bang SOTA gan nhat tim duoc
-# co day du ca RMSE va Score cho 4 bo con.
+# --- #7: positioning against the literature --------------------------------
+# Comparison table taken from Table 2 of STA-HPINN (Spatio-temporal Attention-based Hidden
+# Physics-informed NN), arXiv:2405.12377, Section 4. This is the most recent SOTA table
+# found that reports both RMSE and Score for all 4 subsets.
 SOTA_RMSE = {
     "DCFA (2023)":              [11.74, 16.81, 10.71, 17.77],
     "3D Attention (2023)":      [13.12, 13.93, 12.15, 20.34],

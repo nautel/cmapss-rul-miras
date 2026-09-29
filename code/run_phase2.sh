@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Giai doan 2 — chay SAU khi luoi chinh (run_repro.sh) xong.
-# Muc dich: tach roi hai nguyen nhan co the lam lech so voi paper
-#   (a) dung som qua ngat  -> --full-epochs (chay du 200/600 epoch cua Table 2)
-#   (b) Z-score toan cuc   -> --cond-norm  (chuan hoa theo 6 che do van hanh)
+# Phase 2 — run AFTER the main grid (run_repro.sh) finishes.
+# Goal: disentangle two possible causes of the gap vs. the paper
+#   (a) too-strict early stop -> --full-epochs (run the full 200/600 epochs of Table 2)
+#   (b) global Z-score        -> --cond-norm  (normalize per the 6 operating conditions)
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -12,9 +12,9 @@ NW=${NW:-6}
 cd "$(dirname "$0")" || exit 1
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
-echo "== GPU: ${GPUS[*]} · $NW worker · seeds=$SEEDS =="
+echo "== GPU: ${GPUS[*]} · $NW workers · seeds=$SEEDS =="
 
-launch() {   # $1=nhan  $2..=tham so them
+launch() {   # $1=label  $2..=extra args
     local name=$1; shift
     local pids=()
     for ((i=0; i<NW; i++)); do
@@ -25,21 +25,21 @@ launch() {   # $1=nhan  $2..=tham so them
         pids+=($!)
     done
     for p in "${pids[@]}"; do wait "$p"; done
-    echo "-- $name xong --"
+    echo "-- $name done --"
     grep -h '^RESULT' "$OUT"/logs/${name}*.log | sort
 }
 
-# Hai nhom chay SONG SONG (2 x NW tien trinh). Job dai nhat (FD004, 600 epoch) ~65 phut la
-# san cua wall-clock; chay noi tiep thi mat gap doi ma khong loi gi.
-# (a) du epoch, Z-score toan cuc — ca 4 subset, chi mo hinh day du
+# The two groups run in PARALLEL (2 x NW processes). The longest job (FD004, 600 epochs,
+# ~65 min) sets the wall-clock floor; running sequentially doubles the time for no gain.
+# (a) full epochs, global Z-score — all 4 subsets, full model only
 launch fe --ablations yes_yes_yes --full-epochs &
 A=$!
-# (b) du epoch + chuan hoa theo che do van hanh — chi FD002/FD004 (FD001/FD003 chi 1 che do)
+# (b) full epochs + op-condition normalization — FD002/FD004 only (FD001/FD003: 1 condition)
 launch fecn --datasets FD002,FD004 --ablations yes_yes_yes --full-epochs --cond-norm &
 B=$!
 wait $A; wait $B
 
-echo "== bang + hinh (cap nhat lai) =="
+echo "== tables + figures (refresh) =="
 $PY report.py  --outdir "$OUT" --md "$OUT/REPRODUCTION.md"
 $PY figures.py --outdir "$OUT"
-echo "== xong giai doan 2 =="
+echo "== phase 2 done =="

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Chay lai ho Miras sau khi sua loi (09-2026). Ba nhom chay song song:
-#   A  do anh huong xap xi chunk: FD001+FD004 x 4 bien the x chunk {1,5,20} x 5 seed
-#   B  ket qua chinh: 4 bo x 14 cau hinh (8 Miras + titans+bilstm + 3 y tuong + DCNN)
-#      x chunk 5 x 10 seed
-#   C  moc SOTA cung pipeline: STA-HPINN bo physics, 10 seed, cond-norm cho FD002/FD004
+# Rerun the Miras family after the bug fix (09-2026). Three groups run in parallel:
+#   A  chunk-approximation effect: FD001+FD004 x 4 variants x chunk {1,5,20} x 5 seeds
+#   B  main results: 4 subsets x 13 configs (8 Miras + titans+bilstm + 3 ideas + DCNN)
+#      x chunk 5 x 10 seeds
+#   C  same-pipeline SOTA reference: STA-HPINN w/o physics, 10 seeds, cond-norm FD002/FD004
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
 ROOT=${ROOT:-/home/lab/letuan/data/cmapss}
@@ -14,7 +14,7 @@ cd "$(dirname "$0")" || exit 1
 mkdir -p "$OUT/logs"
 IFS=',' read -r -a GPUS <<< "${CUDA_VISIBLE_DEVICES:-0}"
 gpu() { echo "${GPUS[$(($1 % ${#GPUS[@]}))]}"; }
-echo "== Miras fix · GPU ${GPUS[*]} · A=$NA B=$NB C=$NC worker =="
+echo "== Miras fix · GPU ${GPUS[*]} · A=$NA B=$NB C=$NC workers =="
 
 for ((i=0; i<NA; i++)); do
     CUDA_VISIBLE_DEVICES=$(gpu $i) OMP_NUM_THREADS=2 \
@@ -36,4 +36,4 @@ for ((i=0; i<NC; i++)); do
         --subsets FD002,FD004 --shard "$i/$NC" > "$OUT/logs/Cc$i.log" 2>&1 &
 done
 wait
-echo "== xong Miras fix =="
+echo "== Miras fix done =="

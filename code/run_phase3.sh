@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Giai doan 3 — ablation day du voi --full-epochs.
+# Phase 3 — full ablation with --full-epochs.
 #
-# Vi sao can: o luoi chinh, early stopping (patience=10 nhu Table 2) ban o epoch 22-24 tren
-# FD001/FD003. Mo hinh day du (49k tham so) bi cat som hon mo hinh nho, nen so sanh ablation
-# KHONG cong bang. Phai chay lai ca 5 cau hinh voi du 200/600 epoch moi ket luan duoc ve
-# Table 4/5.
+# Why: in the main grid, early stopping (patience=10 as in Table 2) fires at epoch 22-24 on
+# FD001/FD003. The full model (49k params) is cut earlier than the small models, so the
+# ablation comparison is NOT fair. All 5 configs must be rerun with the full 200/600 epochs
+# before drawing conclusions about Table 4/5.
 #
-# Chay duoc nhieu dot: SHARD_LIST chon shard nao chay lan nay, NTOT la tong so shard.
+# Can run in batches: SHARD_LIST picks which shards run this time, NTOT = total shards.
 #   SHARD_LIST="0 1 2 3 4 5" NTOT=12 bash run_phase3.sh
 set -u
 PY=${PY:-/home/lab/letuan/envs/rul/bin/python}
@@ -30,5 +30,5 @@ for i in $SHARD_LIST; do
     pids+=($!)
 done
 for p in "${pids[@]}"; do wait "$p"; done
-echo "-- xong shard [$SHARD_LIST] --"
+echo "-- shards [$SHARD_LIST] done --"
 grep -h '^RESULT' "$OUT"/logs/ab*.log | sort

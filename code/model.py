@@ -1,4 +1,4 @@
-"""SBi-Transformer (muc 3.2-3.4 cua paper) + cac cong tat cho ablation Table 4/5."""
+"""SBi-Transformer (Sections 3.2-3.4 of the paper) + switches for Table 4/5 ablations."""
 import math
 import torch
 import torch.nn as nn
@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 
 class GlobalMHA(nn.Module):
-    """Multi-head self-attention toan cuc — Eq. (5), (6)."""
+    """Global multi-head self-attention — Eq. (5), (6)."""
 
     def __init__(self, d_model, n_heads, dropout):
         super().__init__()
@@ -31,12 +31,12 @@ class GlobalMHA(nn.Module):
 
 
 class SparseMHA(nn.Module):
-    """Sparse self-attention cuc bo — Eq. (7), (8).
+    """Local sparse self-attention — Eq. (7), (8).
 
-    Mat na nhi phan M = (cua so cuc bo) OR (lang gieng gan nhat hai chieu).
-    Paper chi neu "local window + mutual nearest neighbor selection" va
-    `block_size = 16`; o day dien giai: nua be rong cua so = block_size//2,
-    va k cua mutual-kNN = block_size//2 (xem README, muc "Gia dinh").
+    Binary mask M = (local window) OR (mutual nearest neighbors).
+    The paper only states "local window + mutual nearest neighbor selection" and
+    `block_size = 16`; our interpretation: window half-width = block_size//2,
+    and k of the mutual-kNN = block_size//2 (see README, "Assumptions" section).
     """
 
     def __init__(self, d_model, n_heads, dropout, block_size=16):
@@ -66,7 +66,7 @@ class SparseMHA(nn.Module):
         kk = min(max(1, self.block // 2), T)
         top = torch.zeros_like(s, dtype=torch.bool)
         top.scatter_(-1, s.topk(kk, dim=-1).indices, True)
-        mutual = top & top.transpose(-2, -1)                       # lang gieng hai chieu
+        mutual = top & top.transpose(-2, -1)                       # mutual neighbors
 
         M = mutual | local
         s = s.masked_fill(~M, float("-inf"))
@@ -76,7 +76,7 @@ class SparseMHA(nn.Module):
 
 
 class EncoderLayer(nn.Module):
-    """Lop encoder: chu y hai tang -> FFN -> residual + LayerNorm (Eq. 9)."""
+    """Encoder layer: two-tier attention -> FFN -> residual + LayerNorm (Eq. 9)."""
 
     def __init__(self, d_model, n_heads, ffn_hidden, dropout, block_size,
                  use_global=True, use_sparse=True):
@@ -109,7 +109,7 @@ class SBiTransformer(nn.Module):
         super().__init__()
         self.use_transformer, self.use_sparse = use_transformer, use_sparse
         self.use_bilstm = use_bilstm
-        # Eq. (4): chieu tuyen tinh + position embedding HOC DUOC
+        # Eq. (4): linear projection + LEARNED position embedding
         self.proj = nn.Linear(input_size, num_hidden)
         self.pos = nn.Parameter(torch.zeros(1, seq_len, num_hidden))
         nn.init.trunc_normal_(self.pos, std=0.02)
@@ -140,7 +140,7 @@ class SBiTransformer(nn.Module):
 
 
 ABLATIONS = {
-    # ten -> (Transformer, Multi-head Sparse Attention, BiLSTM)  — thu tu nhu Table 4/5
+    # name -> (Transformer, Multi-head Sparse Attention, BiLSTM)  — order as in Table 4/5
     "no_no_yes":  (False, False, True),
     "yes_no_no":  (True,  False, False),
     "yes_no_yes": (True,  False, True),

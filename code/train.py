@@ -1,6 +1,6 @@
-"""Huan luyen + danh gia SBi-Transformer tren mot subset C-MAPSS.
+"""Train + evaluate SBi-Transformer on one C-MAPSS subset.
 
-Sieu tham so lay nguyen tu Table 2 cua paper (cot FD001/3 va FD002/4).
+Hyperparameters taken verbatim from Table 2 of the paper (columns FD001/3 and FD002/4).
 """
 import argparse
 import json
@@ -15,8 +15,8 @@ from model import build_model, ABLATIONS
 from miras import build_miras, VARIANTS as MIRAS_VARIANTS
 from baselines import build_baseline, BASELINES
 
-# Table 2 — cot "FD0013" (FD001+FD003) va "FD0024" (FD002+FD004)
-BASE = dict(val_frac=0.2,          # 10% engine (= 10 engine tren FD001) qua nho de xep hang
+# Table 2 — columns "FD0013" (FD001+FD003) and "FD0024" (FD002+FD004)
+BASE = dict(val_frac=0.2,          # 10% of engines (= 10 on FD001) is too few to rank
             batch_size=256, num_hidden=16, ffn_hidden=32, bilstm_size=32, num_layers=2,
             weight_decay=1e-5, n_heads=2, seq_len=45, input_size=17, num_samples=50,
             block_size=16, confidence_level=0.95, n_bootstrap=1000,
@@ -57,9 +57,9 @@ def predict(model, X, cap, bs=4096, train_mode=False, clip=None):
 
 
 def bootstrap_ci(samples, level=0.95, narrowing=0.5):
-    """Eq. (13), (14): mean/std cua ensemble Bootstrap + khoang tin cay t-Student.
+    """Eq. (13), (14): mean/std of the Bootstrap ensemble + Student-t confidence interval.
 
-    `samples` : (n_boot, N) cac du doan Bootstrap cho tung diem test.
+    `samples` : (n_boot, N) Bootstrap predictions for each test point.
     """
     from scipy import stats
     nb = samples.shape[0]
@@ -71,14 +71,14 @@ def bootstrap_ci(samples, level=0.95, narrowing=0.5):
 
 
 def uncertainty(model, X, cfg, cap, rng, n_boot=None):
-    """MC-dropout (num_samples) -> resample Bootstrap (n_bootstrap) -> hai kieu CI.
+    """MC-dropout (num_samples) -> Bootstrap resampling (n_bootstrap) -> two kinds of CI.
 
-    `ci_paper` : ap dung dung Eq. (14) — nua be rong = f * t * sigma/sqrt(n_bootstrap).
-    `ci_pred`  : khoang DU BAO tu do tan MC-dropout — f * t * sigma_mc.
+    `ci_paper` : applies Eq. (14) as written — half-width = f * t * sigma/sqrt(n_bootstrap).
+    `ci_pred`  : PREDICTION interval from the MC-dropout spread — f * t * sigma_mc.
 
-    Eq. (14) chia sigma cho sqrt(n_bootstrap) mot lan NUA sau khi sigma da la do lech
-    chuan cua mot ensemble trung binh, nen khoang thu duoc hep di ~sqrt(50*1000) lan va
-    do phu thuc te ve ~0. Bao cao ca hai de thay ro dieu do.
+    Eq. (14) divides sigma by sqrt(n_bootstrap) ONCE MORE even though sigma is already
+    the std of an averaged ensemble, so the resulting interval is ~sqrt(50*1000) times
+    narrower and its actual coverage drops to ~0. Both are reported to make this clear.
     """
     nb = n_boot or cfg["n_bootstrap"]
     S = cfg["num_samples"]
@@ -97,14 +97,15 @@ def run(subset, ablation="yes_yes_yes", seed=0, root="../data/CMAPSSData",
         outdir=".", device=None, cond_norm=False, feature_mode="paper",
         epochs=None, quiet=False, save_ckpt=False, full_epochs=False, seq_len=None,
         arch="sbi", patience=None, overrides=None):
-    """`full_epochs=True`: chay het so epoch cua Table 2, khong dung som.
+    """`full_epochs=True`: run all epochs from Table 2, no early stopping.
 
-    Table 2 ghi DONG THOI `epochs = 200/600` va `patience = 10`; voi val RMSE nhieu thi
-    patience 10 ban o epoch 36-106, khong bao gio toi 600. Hai con so khong the cung dung,
-    nen chay ca hai kieu de biet phan lech den tu dau. Van lay checkpoint tot nhat theo val.
+    Table 2 lists BOTH `epochs = 200/600` and `patience = 10`; with a noisy val RMSE,
+    patience 10 fires at epoch 36-106, never reaching 600. The two numbers cannot both
+    hold, so run both ways to find where the gap comes from. The best checkpoint by val
+    is still kept.
     """
     cfg = config_for(subset, epochs=epochs, seq_len=seq_len, patience=patience)
-    if overrides:                      # autoresearch: ghi de bat ky khoa nao cua cfg
+    if overrides:                      # autoresearch: override any key of cfg
         cfg.update({k: v for k, v in overrides.items() if v is not None})
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -112,11 +113,11 @@ def run(subset, ablation="yes_yes_yes", seed=0, root="../data/CMAPSSData",
 
     d = D.build(root, subset, seq_len=cfg["seq_len"], feature_mode=feature_mode,
                 cond_norm=cond_norm, seed=seed, cap=cfg.get("rul_cap", D.RUL_CAP),
-                eval_cap=D.RUL_CAP,          # thuoc do CO DINH, khong bao gio tune
+                eval_cap=D.RUL_CAP,          # FIXED metric, never tuned
                 val_frac=cfg.get("val_frac", 0.1))
     cfg["input_size"] = len(d["features"])
-    cap = d["cap"]                      # thang lai nhan train
-    ecap = d["eval_cap"]                # kep du doan theo thuoc do
+    cap = d["cap"]                      # train-label scale
+    ecap = d["eval_cap"]                # clip predictions per the metric
 
     t = lambda a: torch.as_tensor(a, device=dev)
     Xtr, ytr = t(d["Xtr"]), t(d["ytr"] / cap)
@@ -185,7 +186,7 @@ def run(subset, ablation="yes_yes_yes", seed=0, root="../data/CMAPSSData",
 
     os.makedirs(outdir, exist_ok=True)
     name = ablation if arch == "sbi" else arch.replace("bl:", "bl_")
-    if cfg.get("tag"):                     # autoresearch dat ten rieng cho tung cau hinh
+    if cfg.get("tag"):                     # autoresearch names each config itself
         tag = cfg["tag"]
     else:
         tag = (f"{subset}_{name}_s{seed}"
@@ -199,7 +200,7 @@ def run(subset, ablation="yes_yes_yes", seed=0, root="../data/CMAPSSData",
     if save_ckpt:
         torch.save(best_state, os.path.join(outdir, f"ckpt_{tag}.pt"))
 
-    # do bat dinh + quy dao — chi lam cho mo hinh day du de tiet kiem thoi gian
+    # uncertainty + trajectories — only for the full model, to save time
     if arch == "sbi" and ablation == "yes_yes_yes" and not cfg.get("skip_uncertainty"):
         rng = np.random.RandomState(seed)
         mc, (mu, lo, hi), (_, plo, phi) = uncertainty(model, Xte, cfg, cap, rng)
@@ -215,7 +216,7 @@ def run(subset, ablation="yes_yes_yes", seed=0, root="../data/CMAPSSData",
         trajs = {}
         units = np.unique(d["ute"])
         lens = np.array([(d["raw_test"][1] == u).sum() for u in units])
-        for u in units[np.argsort(-lens)[:4]]:      # 4 engine test dai nhat -> Fig. 5
+        for u in units[np.argsort(-lens)[:4]]:      # 4 longest test engines -> Fig. 5
             xs, ys = D.test_trajectory(d, u)
             xb = t(xs)
             _, (m2, l2, h2), (_, pl2, ph2) = uncertainty(model, xb, cfg, cap, rng, n_boot=200)

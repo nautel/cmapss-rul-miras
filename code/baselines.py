@@ -1,19 +1,19 @@
-"""Cac baseline kinh dien cua van lieu C-MAPSS, cai trong CUNG pipeline.
+"""Classic baselines from the C-MAPSS literature, implemented in the SAME pipeline.
 
-Ly do phai tu chay thay vi trich so tu paper: so cong bo cua paper 1 khong tai lap
-duoc (11,43 so voi 13,96 do duoc), nen lay no lam moc la so hai thu khac dieu kien.
-Muon khang dinh hon kem thi moi phuong phap phai chay tren cung tien xu ly, cung
-tap val, cung nhan, cung so seed.
+Why run them ourselves instead of quoting numbers from papers: paper 1's published numbers
+could not be reproduced (11.43 vs. 13.96 measured), so using them as a reference would
+compare things under different conditions. To claim one method beats another, every method
+must run with the same preprocessing, same val set, same labels, same number of seeds.
 
-| ten      | nguon |
-|----------|-------|
+| name     | source |
+|----------|--------|
 | `dcnn`   | Li, Ding, Sun, "RUL estimation in prognostics using deep convolution neural networks", RESS 172 (2018) |
 | `lstm`   | Zheng et al., "Long short-term memory network for remaining useful life estimation", ICPHM 2017 |
-| `bilstm` | Wang et al., bidirectional LSTM cho RUL |
-| `gru`    | bien the GRU cua tren |
+| `bilstm` | Wang et al., bidirectional LSTM for RUL |
+| `gru`    | GRU variant of the above |
 | `tcn`    | Bai et al., temporal convolutional network (dilated causal conv) |
-| `cnn_lstm`| ho lai CNN + LSTM (Remadna 2020, Che 2021) |
-| `mlp`    | can duoi: bo qua cau truc thoi gian, duoi phang cua so |
+| `cnn_lstm`| hybrid CNN + LSTM family (Remadna 2020, Che 2021) |
+| `mlp`    | lower bound: ignores temporal structure, flattens the window |
 """
 import torch
 import torch.nn as nn
@@ -21,7 +21,7 @@ import torch.nn.functional as F
 
 
 class DCNN(nn.Module):
-    """Li et al. 2018: 4 lop conv 10 filter kernel (10x1) + 1 lop conv 1 filter (3x1)."""
+    """Li et al. 2018: 4 conv layers, 10 filters (10x1) + 1 conv layer, 1 filter (3x1)."""
 
     def __init__(self, input_size, seq_len, n_filters=10, k=10, dropout=0.5, fc=100):
         super().__init__()
@@ -46,7 +46,7 @@ class DCNN(nn.Module):
 
 
 class RNNBaseline(nn.Module):
-    """LSTM / BiLSTM / GRU + hai lop FC, lay trang thai an cuoi cung."""
+    """LSTM / BiLSTM / GRU + two FC layers, using the last hidden state."""
 
     def __init__(self, input_size, hidden=64, layers=2, kind="lstm",
                  bidir=False, dropout=0.2, fc=8):
@@ -95,7 +95,7 @@ class TCN(nn.Module):
 
 
 class CNNLSTM(nn.Module):
-    """Conv1d rut dac trung cuc bo -> LSTM mo hinh hoa thoi gian."""
+    """Conv1d extracts local features -> LSTM models the temporal dynamics."""
 
     def __init__(self, input_size, ch=32, hidden=64, layers=1, dropout=0.2):
         super().__init__()
@@ -113,7 +113,7 @@ class CNNLSTM(nn.Module):
 
 
 class MLPFlat(nn.Module):
-    """Can duoi: duoi phang cua so, bo qua hoan toan cau truc thoi gian."""
+    """Lower bound: flattens the window, completely ignoring temporal structure."""
 
     def __init__(self, input_size, seq_len, hidden=100, dropout=0.2):
         super().__init__()

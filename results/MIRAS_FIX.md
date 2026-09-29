@@ -1,26 +1,26 @@
-# Miras sau khi sua loi — so voi SOTA cung pipeline
+# Miras after the bug fix — vs. SOTA in the same pipeline
 
-Pipeline chung: 14 sensor kinh dien, cua so 40/60/60/60, min-max (FD001/FD003), chuan hoa theo che do van hanh (FD002/FD004), nhan cat 125, val 20% engine. `[..]` = CI 95% bootstrap tren engine.
+Shared pipeline: 14 classic sensors, window 40/60/60/60, min-max (FD001/FD003), operating-condition normalization (FD002/FD004), label cap 125, val = 20% of engines. `[..]` = 95% engine-level bootstrap CI.
 
-## A. Anh huong cua xap xi chunk (FD001, FD004 · 5 seed)
+## A. Effect of the chunk approximation (FD001, FD004 · 5 seeds)
 
-| bien the | chunk 1 (chinh xac) | chunk 5 | chunk 20 |
+| variant | chunk 1 (exact) | chunk 5 | chunk 20 |
 |---|---|---|---|
 | `linear_attn` | 14.44 | 14.42 | 14.45 |
 | `deltanet` | 14.41 | 14.08 | 14.26 |
 | `gated_deltanet` | 14.31 | 14.40 | 13.81 |
 | `titans` | 14.29 | 14.00 | 14.07 |
 
-Trung binh FD001 va FD004. Neu `deltanet` va `linear_attn` chi tach nhau khi chunk nho thi xap xi chunk dang xoa khac biet giua cac attentional bias.
+Mean of FD001 and FD004. If `deltanet` and `linear_attn` separate only at small chunk sizes, the chunk approximation is erasing the differences between attentional biases.
 
-## B. Bang xep hang (RMSE)
+## B. Leaderboard (RMSE)
 
-| # | mo hinh | FD001 | FD002 | FD003 | FD004 | TB | Score TB | seed |
+| # | model | FD001 | FD002 | FD003 | FD004 | mean | mean Score | seed |
 |---|---|---|---|---|---|---|---|---|
 | 1 | DCNN (Li 2018) | 12.58 [10.4, 14.6] | 12.25 [11.0, 13.5] | 12.12 [10.3, 14.0] | 13.07 [11.2, 14.9] | **12.50** | 505 | 10 |
-| 2 | STA-HPINN, bo physics (SOTA tai tao) | 11.69 [9.5, 13.8] | 13.94 [12.3, 15.6] | 10.27 [8.4, 12.0] | 15.88 [13.6, 18.1] | **12.95** | 765 | 10 |
+| 2 | STA-HPINN, no physics (SOTA re-implemented) | 11.69 [9.5, 13.8] | 13.94 [12.3, 15.6] | 10.27 [8.4, 12.0] | 15.88 [13.6, 18.1] | **12.95** | 765 | 10 |
 | 3 | memora | 13.64 [11.2, 15.9] | 12.30 [11.1, 13.6] | 12.99 [10.8, 15.0] | 13.88 [12.0, 15.7] | **13.20** | 633 | 10 |
-| 4 | Titans, bo nho hang 4 | 14.17 [11.6, 16.5] | 12.77 [11.5, 14.1] | 13.73 [11.3, 16.0] | 14.40 [12.5, 16.2] | **13.77** | 720 | 10 |
+| 4 | Titans, rank-4 memory | 14.17 [11.6, 16.5] | 12.77 [11.5, 14.1] | 13.73 [11.3, 16.0] | 14.40 [12.5, 16.2] | **13.77** | 720 | 10 |
 | 5 | titans | 13.67 [11.2, 15.9] | 13.25 [12.0, 14.5] | 13.46 [11.2, 15.6] | 14.69 [12.9, 16.5] | **13.77** | 704 | 10 |
 | 6 | deltanet | 13.83 [11.4, 16.0] | 13.30 [12.0, 14.5] | 14.02 [11.7, 16.2] | 14.78 [12.9, 16.6] | **13.98** | 739 | 10 |
 | 7 | gated_deltanet | 13.82 [11.3, 16.1] | 13.41 [12.1, 14.7] | 13.97 [11.7, 16.1] | 14.77 [12.9, 16.6] | **13.99** | 753 | 10 |
@@ -29,19 +29,19 @@ Trung binh FD001 va FD004. Neu `deltanet` va `linear_attn` chi tach nhau khi chu
 | 10 | moneta | 14.04 [11.5, 16.4] | 13.72 [12.4, 15.0] | 14.34 [12.0, 16.7] | 15.31 [13.6, 17.0] | **14.35** | 868 | 10 |
 | 11 | Titans + BiLSTM | 13.77 [11.4, 15.9] | 13.74 [12.5, 15.0] | 14.61 [11.9, 17.3] | 16.20 [14.4, 17.9] | **14.58** | 944 | 10 |
 | 12 | yaad | 13.88 [11.2, 16.3] | 13.45 [12.3, 14.6] | 16.18 [13.8, 18.3] | 15.52 [13.8, 17.2] | **14.75** | 954 | 10 |
-| 13 | Titans, nut that 3 + triplet | 14.71 [11.8, 17.5] | 13.96 [12.7, 15.2] | 15.17 [12.6, 17.9] | 16.09 [14.4, 17.6] | **14.98** | 928 | 10 |
-| 14 | Titans + nhanh cam bien | 12.62 [10.0, 14.9] | 19.45 [17.0, 22.1] | 12.19 [10.2, 14.3] | 17.63 [15.3, 19.8] | **15.47** | 1235 | 10 |
-| — | *STA-HPINN — so cong bo* | *11.27* | *13.21* | *8.30* | *13.31* | *11.52* | — | — |
+| 13 | Titans, bottleneck 3 + triplet | 14.71 [11.8, 17.5] | 13.96 [12.7, 15.2] | 15.17 [12.6, 17.9] | 16.09 [14.4, 17.6] | **14.98** | 928 | 10 |
+| 14 | Titans + sensor branch | 12.62 [10.0, 14.9] | 19.45 [17.0, 22.1] | 12.19 [10.2, 14.3] | 17.63 [15.3, 19.8] | **15.47** | 1235 | 10 |
+| — | *STA-HPINN — published* | *11.27* | *13.21* | *8.30* | *13.31* | *11.52* | — | — |
 
-## C. Hieu ghep cap so voi STA-HPINN, bo physics (SOTA tai tao)
+## C. Paired difference vs. STA-HPINN, no physics (SOTA re-implemented)
 
-RMSE(mo hinh) − RMSE(moc); **am = tot hon moc**. In dam = co y nghia sau Holm (p < 0,05) trong tung bo.
+RMSE(model) − RMSE(reference); **negative = better than reference**. Bold = significant after Holm (p < 0.05) within each subset.
 
-| mo hinh | FD001 | FD002 | FD003 | FD004 |
+| model | FD001 | FD002 | FD003 | FD004 |
 |---|---|---|---|---|
 | DCNN (Li 2018) | **+0.89 [+0.2, +1.6]** | -1.69 [-3.1, -0.4] | **+1.85 [+0.4, +3.6]** | **-2.81 [-4.7, -0.9]** |
 | memora | **+1.95 [+0.9, +3.0]** | -1.64 [-3.2, -0.2] | **+2.71 [+1.3, +4.1]** | -2.00 [-3.9, -0.1] |
-| Titans, bo nho hang 4 | **+2.47 [+1.0, +4.2]** | -1.17 [-2.7, +0.3] | **+3.46 [+1.8, +5.1]** | -1.48 [-3.5, +0.7] |
+| Titans, rank-4 memory | **+2.47 [+1.0, +4.2]** | -1.17 [-2.7, +0.3] | **+3.46 [+1.8, +5.1]** | -1.48 [-3.5, +0.7] |
 | titans | **+1.98 [+0.7, +3.4]** | -0.68 [-2.3, +0.8] | **+3.19 [+1.7, +4.7]** | -1.19 [-3.2, +0.8] |
 | deltanet | **+2.14 [+1.0, +3.3]** | -0.64 [-2.3, +0.9] | **+3.74 [+2.3, +5.2]** | -1.10 [-3.1, +0.9] |
 | gated_deltanet | **+2.12 [+0.9, +3.4]** | -0.53 [-2.1, +0.9] | **+3.70 [+2.2, +5.2]** | -1.11 [-3.1, +0.9] |
@@ -50,18 +50,18 @@ RMSE(mo hinh) − RMSE(moc); **am = tot hon moc**. In dam = co y nghia sau Holm 
 | moneta | **+2.35 [+1.0, +3.7]** | -0.22 [-2.0, +1.4] | **+4.07 [+2.2, +5.9]** | -0.57 [-2.6, +1.4] |
 | Titans + BiLSTM | **+2.07 [+0.8, +3.3]** | -0.20 [-1.9, +1.4] | **+4.34 [+2.3, +6.4]** | +0.32 [-1.5, +2.3] |
 | yaad | **+2.18 [+0.8, +3.5]** | -0.49 [-2.0, +0.9] | **+5.90 [+3.9, +7.9]** | -0.36 [-2.4, +1.7] |
-| Titans, nut that 3 + triplet | **+3.01 [+0.7, +5.4]** | +0.03 [-1.6, +1.6] | **+4.89 [+2.7, +7.1]** | +0.20 [-1.7, +2.3] |
-| Titans + nhanh cam bien | +0.93 [-0.0, +2.0] | **+5.51 [+3.7, +7.5]** | **+1.92 [+0.6, +3.4]** | **+1.75 [+0.7, +2.8]** |
+| Titans, bottleneck 3 + triplet | **+3.01 [+0.7, +5.4]** | +0.03 [-1.6, +1.6] | **+4.89 [+2.7, +7.1]** | +0.20 [-1.7, +2.3] |
+| Titans + sensor branch | +0.93 [-0.0, +2.0] | **+5.51 [+3.7, +7.5]** | **+1.92 [+0.6, +3.4]** | **+1.75 [+0.7, +2.8]** |
 
-## C. Hieu ghep cap so voi DCNN (Li 2018)
+## C. Paired difference vs. DCNN (Li 2018)
 
-RMSE(mo hinh) − RMSE(moc); **am = tot hon moc**. In dam = co y nghia sau Holm (p < 0,05) trong tung bo.
+RMSE(model) − RMSE(reference); **negative = better than reference**. Bold = significant after Holm (p < 0.05) within each subset.
 
-| mo hinh | FD001 | FD002 | FD003 | FD004 |
+| model | FD001 | FD002 | FD003 | FD004 |
 |---|---|---|---|---|
-| STA-HPINN, bo physics (SOTA tai tao) | -0.89 [-1.6, -0.2] | **+1.69 [+0.4, +3.1]** | **-1.85 [-3.6, -0.4]** | **+2.81 [+0.9, +4.7]** |
+| STA-HPINN, no physics (SOTA re-implemented) | -0.89 [-1.6, -0.2] | **+1.69 [+0.4, +3.1]** | **-1.85 [-3.6, -0.4]** | **+2.81 [+0.9, +4.7]** |
 | memora | +1.06 [+0.1, +1.9] | +0.05 [-0.6, +0.8] | +0.86 [-0.0, +1.8] | **+0.81 [+0.2, +1.4]** |
-| Titans, bo nho hang 4 | +1.59 [+0.3, +3.0] | +0.52 [-0.3, +1.3] | **+1.61 [+0.5, +2.8]** | **+1.33 [+0.7, +2.0]** |
+| Titans, rank-4 memory | +1.59 [+0.3, +3.0] | +0.52 [-0.3, +1.3] | **+1.61 [+0.5, +2.8]** | **+1.33 [+0.7, +2.0]** |
 | titans | +1.09 [+0.0, +2.2] | +1.01 [+0.2, +1.8] | **+1.34 [+0.3, +2.3]** | **+1.62 [+1.0, +2.2]** |
 | deltanet | +1.25 [+0.3, +2.2] | **+1.05 [+0.3, +1.8]** | **+1.89 [+0.8, +2.9]** | **+1.71 [+1.1, +2.3]** |
 | gated_deltanet | +1.24 [+0.2, +2.2] | **+1.16 [+0.4, +1.9]** | **+1.85 [+0.7, +2.9]** | **+1.70 [+1.0, +2.4]** |
@@ -70,5 +70,5 @@ RMSE(mo hinh) − RMSE(moc); **am = tot hon moc**. In dam = co y nghia sau Holm 
 | moneta | +1.46 [+0.2, +2.6] | **+1.47 [+0.5, +2.4]** | **+2.22 [+1.0, +3.6]** | **+2.24 [+1.5, +2.9]** |
 | Titans + BiLSTM | +1.19 [+0.2, +2.1] | **+1.49 [+0.6, +2.4]** | **+2.49 [+1.0, +4.2]** | **+3.13 [+2.3, +3.9]** |
 | yaad | +1.30 [+0.1, +2.4] | **+1.20 [+0.5, +2.0]** | **+4.05 [+2.7, +5.5]** | **+2.45 [+1.7, +3.2]** |
-| Titans, nut that 3 + triplet | +2.13 [+0.1, +4.3] | **+1.72 [+0.8, +2.7]** | **+3.05 [+1.4, +5.0]** | **+3.02 [+2.1, +3.9]** |
-| Titans + nhanh cam bien | +0.04 [-1.0, +1.0] | **+7.20 [+4.8, +9.7]** | +0.07 [-1.0, +1.2] | **+4.56 [+2.7, +6.2]** |
+| Titans, bottleneck 3 + triplet | +2.13 [+0.1, +4.3] | **+1.72 [+0.8, +2.7]** | **+3.05 [+1.4, +5.0]** | **+3.02 [+2.1, +3.9]** |
+| Titans + sensor branch | +0.04 [-1.0, +1.0] | **+7.20 [+4.8, +9.7]** | +0.07 [-1.0, +1.2] | **+4.56 [+2.7, +6.2]** |
